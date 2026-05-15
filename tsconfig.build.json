@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": false,
+    "emitDeclarationOnly": false,
+    "allowImportingTsExtensions": false,
+    "outDir": "./dist"
+  },
+  "exclude": ["node_modules", "dist", "prisma.config.ts", "src/tests"]
+}

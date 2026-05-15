@@ -11,3 +11,329 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+enum UserRole {
+  OWNER
+  RENTER
+  ADMIN
+}
+
+enum OtpPurpose {
+  SIGNUP
+  LOGIN
+}
+
+enum EquipmentStatus {
+  DRAFT
+  PENDING_VERIFICATION
+  ACTIVE
+  REJECTED
+}
+
+enum NotificationType {
+  EQUIPMENT_APPROVED
+  EQUIPMENT_REJECTED
+  ADDRESS_UPDATED
+  PASSWORD_UPDATED
+  PHONE_VERIFIED
+  BOOKING_REQUEST_RECEIVED
+  BOOKING_REQUEST_SUBMITTED
+  BOOKING_APPROVED
+  BOOKING_REJECTED
+  BOOKING_PAYMENT_REQUIRED
+  BOOKING_PAYMENT_CONFIRMED
+  RENTER_PAYMENT_CONFIRMED
+  BOOKING_STARTED
+  BOOKING_COMPLETED
+  BOOKING_CANCELLED
+  BOOKING_DISPUTED
+}
+
+enum BookingStatus {
+  PENDING_OWNER_APPROVAL
+  PENDING_RENTER_PAYMENT
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  DISPUTED
+}
+
+enum FinancialStatus {
+  NONE
+  PAYMENT_PENDING
+  PAYMENT_PROCESSING
+  PAYMENT_CAPTURED
+  PAYMENT_FAILED
+  MANUAL_SETTLEMENT_PENDING
+  MANUAL_SETTLEMENT_COMPLETE
+  PAYOUT_ON_HOLD
+  PAYOUT_RELEASED
+  PAYOUT_SETTLED
+  PAYOUT_FAILED
+  DEPOSIT_REFUND_PENDING
+  DEPOSIT_REFUNDED
+  REFUND_FAILED
+  DISPUTED
+}
+
+enum OwnerPayoutStatus {
+  NONE
+  PENDING
+  PAID
+  BLOCKED
+}
+
+enum DepositRefundStatus {
+  NONE
+  PENDING
+  REFUNDED
+  SKIPPED
+  BLOCKED
+}
+
+enum SupportQueryTopic {
+  GENERAL_INQUIRY
+  LISTING_HELP
+  RENTAL_HELP
+  PAYMENT_HELP
+  ACCOUNT_HELP
+}
+
+model User {
+  id             String           @id @default(cuid())
+  fullName       String
+  email          String           @unique
+  phone          String?
+  address        String
+  role           UserRole
+  razorpayLinkedAccountId String? @unique
+  passwordHash   String
+  emailVerified  Boolean          @default(false)
+  phoneVerified  Boolean          @default(false)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  otpVerifications  OtpVerification[]
+  equipmentListings  Equipment[]
+  reviewedEquipment  Equipment[]    @relation("EquipmentReviewedBy")
+  notifications      Notification[]
+  wishlistItems      WishlistItem[]
+  renterBookings     Booking[]      @relation("BookingRenter")
+  ownerBookings      Booking[]      @relation("BookingOwner")
+  supportQueries     SupportQuery[]
+
+  @@index([role])
+  @@index([emailVerified])
+  @@index([phoneVerified])
+  @@index([razorpayLinkedAccountId])
+}
+
+model OtpVerification {
+  id        String     @id @default(cuid())
+  userId    String
+  email     String
+  purpose   OtpPurpose @default(SIGNUP)
+  otpHash   String
+  expiresAt DateTime
+  attempts  Int        @default(0)
+  usedAt    DateTime?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([email])
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([usedAt])
+}
+
+model Category {
+  id            String      @id @default(cuid())
+  title         String      @unique
+  description   String
+  imageUrl      String
+  imagePublicId String
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  equipment     Equipment[]
+
+  @@index([title])
+}
+
+model Equipment {
+  id                String            @id @default(cuid())
+  ownerId           String
+  title             String
+  categoryId        String
+  price             Float
+  deliveryRadius    Int
+  address           String
+  normalizedAddress String
+  latitude          Float
+  longitude         Float
+  status            EquipmentStatus   @default(PENDING_VERIFICATION)
+  rejectionReason   String?
+  reviewedById      String?
+  reviewedAt        DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  owner             User              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  category          Category          @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  reviewedBy        User?             @relation("EquipmentReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  images            EquipmentImage[]
+  notifications     Notification[]
+  wishlistItems     WishlistItem[]
+  bookings          Booking[]
+
+  @@index([ownerId])
+  @@index([status])
+  @@index([categoryId])
+}
+
+model EquipmentImage {
+  id           String    @id @default(cuid())
+  equipmentId   String
+  url          String
+  publicId     String
+  position     Int       @default(0)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  equipment    Equipment @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+
+  @@index([equipmentId])
+}
+
+model Notification {
+  id          String           @id @default(cuid())
+  userId      String
+  equipmentId String?
+  type        NotificationType
+  title       String
+  message     String
+  actionLabel String?
+  actionHref  String?
+  isRead      Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  equipment   Equipment?       @relation(fields: [equipmentId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([userId, isRead])
+  @@index([equipmentId])
+}
+
+model WishlistItem {
+  id          String    @id @default(cuid())
+  userId      String
+  equipmentId String
+  createdAt   DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  equipment   Equipment @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, equipmentId])
+  @@index([userId])
+  @@index([equipmentId])
+  @@index([userId, createdAt])
+}
+
+model Booking {
+  id                   String        @id @default(cuid())
+  equipmentId          String
+  renterId             String
+  ownerId              String
+  startDate            DateTime
+  endDate              DateTime
+  rentalDays           Int
+  rentalFee            Float
+  platformFee          Float
+  damageWaiverFee      Float
+  securityDeposit      Float
+  totalAuthorized      Float
+  currency             String        @default("INR")
+  isPaymentCompleted   Boolean       @default(false)
+  financialStatus      FinancialStatus @default(NONE)
+  paymentProvider      String?
+  paymentIntentId      String?
+  paymentAuthorizationId String?
+  paymentIdempotencyKey String?
+  razorpayOrderId      String?
+  razorpayPaymentId    String?
+  razorpayTransferId   String?
+  razorpayRefundId     String?
+  payoutLinkedAccountId String?
+  paymentAmountInPaise Int?
+  paymentCurrency      String?
+  lastPaymentError     String?
+  paymentCapturedAt    DateTime?
+  paymentFailedAt      DateTime?
+  paymentVoidedAt      DateTime?
+  paymentReleasedAt    DateTime?
+  ownerPayoutSettledAt DateTime?
+  depositRefundInitiatedAt DateTime?
+  depositRefundedAt    DateTime?
+  ownerPayoutStatus    OwnerPayoutStatus @default(NONE)
+  ownerPaidAt          DateTime?
+  ownerPayoutReference String?
+  depositRefundStatus  DepositRefundStatus @default(NONE)
+  depositRefundReference String?
+  paymentDisputedAt    DateTime?
+  ownerActionDeadlineAt DateTime
+  renterPaymentDeadlineAt DateTime?
+  conditionLoggedAt    DateTime?
+  completedAt          DateTime?
+  cancelledAt          DateTime?
+  disputedAt           DateTime?
+  status               BookingStatus @default(PENDING_OWNER_APPROVAL)
+  ownerDecisionReason  String?
+  disputeReason        String?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  equipment            Equipment     @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  renter               User          @relation("BookingRenter", fields: [renterId], references: [id], onDelete: Cascade)
+  owner                User          @relation("BookingOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([equipmentId])
+  @@index([renterId, createdAt])
+  @@index([ownerId, createdAt])
+  @@index([status, createdAt])
+  @@index([paymentIntentId])
+  @@index([financialStatus, createdAt])
+  @@index([ownerPayoutStatus, createdAt])
+  @@index([depositRefundStatus, createdAt])
+  @@index([razorpayOrderId])
+  @@index([razorpayPaymentId])
+  @@index([razorpayTransferId])
+  @@index([razorpayRefundId])
+}
+
+model RazorpayWebhookEvent {
+  id          String   @id @default(cuid())
+  eventId     String   @unique
+  eventType   String
+  entityId    String?
+  payload     Json
+  processedAt DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([eventType, createdAt])
+  @@index([entityId])
+}
+
+model SupportQuery {
+  id            String            @id @default(cuid())
+  userId        String
+  topic         SupportQueryTopic
+  fullName      String
+  email         String
+  role          UserRole
+  message       String
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([topic, createdAt])
+  @@index([role, createdAt])
+}

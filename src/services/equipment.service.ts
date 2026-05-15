@@ -1,0 +1,1162 @@
+import { Prisma } from "../generated/prisma/client";
+import { EQUIPMENT_IMAGE_LIMITS, type EquipmentStatusValue } from "../configs/equipment.config";
+import { db } from "../lib/db";
+import { deleteCloudinaryImage, uploadEquipmentImage } from "../lib/cloudinary";
+import {
+  autocompleteEquipmentAddresses,
+  geocodeEquipmentAddress,
+  geocodeEquipmentPlaceId,
+} from "../lib/mapbox";
+import {
+  createEquipmentApprovedNotification,
+  createEquipmentRejectedNotification,
+} from "./notification.service";
+import type { SafeEquipment } from "../types/equipment";
+import type {
+  CreateEquipmentInput,
+  CreateDraftEquipmentInput,
+  RejectEquipmentInput,
+  UpdateOwnerEquipmentInput,
+} from "../validators/equipment.schema";
+
+type CategoryRow = {
+  id: string;
+  title: string;
+  description: string;
+  imageUrl: string;
+  imagePublicId: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type EquipmentRow = {
+  id: string;
+  ownerId: string;
+  ownerFullName: string;
+  ownerEmail: string;
+  ownerPhone: string | null;
+  ownerAddress: string;
+  ownerPhoneVerified: boolean;
+  ownerCreatedAt: Date;
+  title: string;
+  categoryId: string;
+  price: number;
+  deliveryRadius: number;
+  address: string;
+  normalizedAddress: string;
+  latitude: number;
+  longitude: number;
+  status: string;
+  rejectionReason: string | null;
+  reviewedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  categoryTitle: string;
+  categoryDescription: string;
+  categoryImageUrl: string;
+  categoryCreatedAt: Date;
+  categoryUpdatedAt: Date;
+};
+
+type EquipmentImageRow = {
+  id: string;
+  equipmentId: string;
+  url: string;
+  publicId: string;
+  position: number;
+};
+
+type WishlistItemRow = {
+  equipmentId: string;
+};
+
+export class EquipmentServiceError extends Error {
+  statusCode: number;
+  code: string;
+
+  constructor(message: string, statusCode = 400, code = "EQUIPMENT_ERROR") {
+    super(message);
+    this.name = "EquipmentServiceError";
+    this.statusCode = statusCode;
+    this.code = code;
+  }
+}
+
+const allowedStatuses: EquipmentStatusValue[] = [
+  "DRAFT",
+  "PENDING_VERIFICATION",
+  "ACTIVE",
+  "REJECTED",
+];
+
+function mapRowToPublicEquipment(
+  row: EquipmentRow,
+  images: EquipmentImageRow[],
+  isWishlisted = false,
+): SafeEquipment {
+  if (!row.categoryId) {
+    throw new EquipmentServiceError(
+      "Invalid equipment category stored in the database.",
+      500,
+      "INVALID_CATEGORY",
+    );
+  }
+
+  return {
+    id: row.id,
+    ownerId: row.ownerId,
+    owner: {
+      id: row.ownerId,
+      fullName: row.ownerFullName,
+      email: row.ownerEmail,
+      phone: row.ownerPhone,
+      address: row.ownerAddress,
+      phoneVerified: row.ownerPhoneVerified,
+      createdAt: row.ownerCreatedAt,
+    },
+    title: row.title,
+    category: {
+      id: row.categoryId,
+      title: row.categoryTitle,
+      description: row.categoryDescription,
+      imageUrl: row.categoryImageUrl,
+      activeListingCount: 0,
+      createdAt: row.categoryCreatedAt,
+      updatedAt: row.categoryUpdatedAt,
+    },
+    price: row.price,
+    deliveryRadius: row.deliveryRadius,
+    address: row.address,
+    normalizedAddress: row.normalizedAddress,
+    latitude: row.latitude,
+    longitude: row.longitude,
+    status: row.status as EquipmentStatusValue,
+    rejectionReason: row.rejectionReason,
+    reviewedAt: row.reviewedAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    images: images
+      .sort((left, right) => left.position - right.position)
+      .map((image) => ({
+        id: image.id,
+        url: image.url,
+        position: image.position,
+      })),
+    isWishlisted,
+  };
+}
+
+function ensureAllowedStatus(status: string): EquipmentStatusValue {
+  if (!allowedStatuses.includes(status as EquipmentStatusValue)) {
+    throw new EquipmentServiceError(
+      "Invalid equipment status stored in the database.",
+      500,
+      "INVALID_STATUS",
+    );
+  }
+
+  return status as EquipmentStatusValue;
+}
+
+function groupImagesByEquipmentId(imageRows: EquipmentImageRow[]) {
+  return imageRows.reduce<Record<string, EquipmentImageRow[]>>(
+    (grouped, image) => {
+      const nextImages = grouped[image.equipmentId] ?? [];
+      grouped[image.equipmentId] = [...nextImages, image];
+      return grouped;
+    },
+    {},
+  );
+}
+
+async function queryCategoriesByIds(categoryIds: string[]) {
+  if (categoryIds.length === 0) {
+    return [];
+  }
+
+  return db.$queryRaw<CategoryRow[]>(Prisma.sql`
+    SELECT
+      c."id",
+      c."title",
+      c."description",
+      c."imageUrl",
+      c."imagePublicId",
+      c."createdAt",
+      c."updatedAt"
+    FROM "Category" c
+    WHERE c."id" IN (${Prisma.join(categoryIds)})
+  `);
+}
+
+async function queryEquipmentImagesByIds(equipmentIds: string[]) {
+  if (equipmentIds.length === 0) {
+    return [];
+  }
+
+  return db.$queryRaw<EquipmentImageRow[]>(Prisma.sql`
+    SELECT
+      i."id",
+      i."equipmentId",
+      i."url",
+      i."publicId",
+      i."position"
+    FROM "EquipmentImage" i
+    WHERE i."equipmentId" IN (${Prisma.join(equipmentIds)})
+    ORDER BY i."position" ASC
+  `);
+}
+
+async function queryEquipmentByIds(equipmentIds: string[]) {
+  if (equipmentIds.length === 0) {
+    return [];
+  }
+
+  return db.$queryRaw<EquipmentRow[]>(Prisma.sql`
+    SELECT
+      e."id",
+      e."ownerId",
+      u."fullName" AS "ownerFullName",
+      u."email" AS "ownerEmail",
+      u."phone" AS "ownerPhone",
+      u."address" AS "ownerAddress",
+      u."phoneVerified" AS "ownerPhoneVerified",
+      u."createdAt" AS "ownerCreatedAt",
+      e."title",
+      e."categoryId",
+      e."price",
+      e."deliveryRadius",
+      e."address",
+      e."normalizedAddress",
+      e."latitude",
+      e."longitude",
+      e."status",
+      e."rejectionReason",
+      e."reviewedAt",
+      e."createdAt",
+      e."updatedAt",
+      c."title" AS "categoryTitle",
+      c."description" AS "categoryDescription",
+      c."imageUrl" AS "categoryImageUrl",
+      c."createdAt" AS "categoryCreatedAt",
+      c."updatedAt" AS "categoryUpdatedAt"
+    FROM "Equipment" e
+    INNER JOIN "User" u ON u."id" = e."ownerId"
+    INNER JOIN "Category" c ON c."id" = e."categoryId"
+    WHERE e."id" IN (${Prisma.join(equipmentIds)})
+    ORDER BY e."createdAt" DESC
+  `);
+}
+
+async function queryEquipmentById(equipmentId: string) {
+  const rows = await queryEquipmentByIds([equipmentId]);
+  return rows[0] ?? null;
+}
+
+async function queryWishlistItemsByUser(
+  userId: string,
+  equipmentIds: string[],
+) {
+  if (equipmentIds.length === 0) {
+    return [];
+  }
+
+  return db.$queryRaw<WishlistItemRow[]>(Prisma.sql`
+    SELECT
+      w."equipmentId"
+    FROM "WishlistItem" w
+    WHERE w."userId" = ${userId}
+      AND w."equipmentId" IN (${Prisma.join(equipmentIds)})
+  `);
+}
+
+async function getWishlistedEquipmentIdSet(
+  userId: string | undefined,
+  equipmentIds: string[],
+) {
+  if (!userId || equipmentIds.length === 0) {
+    return new Set<string>();
+  }
+
+  const rows = await queryWishlistItemsByUser(userId, equipmentIds);
+  return new Set(rows.map((row) => row.equipmentId));
+}
+
+async function queryEquipmentByOwner(ownerId: string) {
+  return db.$queryRaw<EquipmentRow[]>(Prisma.sql`
+    SELECT
+      e."id",
+      e."ownerId",
+      u."fullName" AS "ownerFullName",
+      u."email" AS "ownerEmail",
+      u."phone" AS "ownerPhone",
+      u."address" AS "ownerAddress",
+      u."phoneVerified" AS "ownerPhoneVerified",
+      u."createdAt" AS "ownerCreatedAt",
+      e."title",
+      e."categoryId",
+      e."price",
+      e."deliveryRadius",
+      e."address",
+      e."normalizedAddress",
+      e."latitude",
+      e."longitude",
+      e."status",
+      e."rejectionReason",
+      e."reviewedAt",
+      e."createdAt",
+      e."updatedAt",
+      c."title" AS "categoryTitle",
+      c."description" AS "categoryDescription",
+      c."imageUrl" AS "categoryImageUrl",
+      c."createdAt" AS "categoryCreatedAt",
+      c."updatedAt" AS "categoryUpdatedAt"
+    FROM "Equipment" e
+    INNER JOIN "User" u ON u."id" = e."ownerId"
+    INNER JOIN "Category" c ON c."id" = e."categoryId"
+    WHERE e."ownerId" = ${ownerId}
+    ORDER BY e."createdAt" DESC
+  `);
+}
+
+async function queryEquipmentByStatus(status: EquipmentStatusValue) {
+  return db.$queryRaw<EquipmentRow[]>(Prisma.sql`
+    SELECT
+      e."id",
+      e."ownerId",
+      u."fullName" AS "ownerFullName",
+      u."email" AS "ownerEmail",
+      u."phone" AS "ownerPhone",
+      u."address" AS "ownerAddress",
+      u."phoneVerified" AS "ownerPhoneVerified",
+      u."createdAt" AS "ownerCreatedAt",
+      e."title",
+      e."categoryId",
+      e."price",
+      e."deliveryRadius",
+      e."address",
+      e."normalizedAddress",
+      e."latitude",
+      e."longitude",
+      e."status",
+      e."rejectionReason",
+      e."reviewedAt",
+      e."createdAt",
+      e."updatedAt",
+      c."title" AS "categoryTitle",
+      c."description" AS "categoryDescription",
+      c."imageUrl" AS "categoryImageUrl",
+      c."createdAt" AS "categoryCreatedAt",
+      c."updatedAt" AS "categoryUpdatedAt"
+    FROM "Equipment" e
+    INNER JOIN "User" u ON u."id" = e."ownerId"
+    INNER JOIN "Category" c ON c."id" = e."categoryId"
+    WHERE e."status" = ${status}
+    ORDER BY e."createdAt" DESC
+  `);
+}
+
+async function queryPublicEquipmentByCategory(categoryId?: string) {
+  return db.$queryRaw<EquipmentRow[]>(Prisma.sql`
+    SELECT
+      e."id",
+      e."ownerId",
+      u."fullName" AS "ownerFullName",
+      u."email" AS "ownerEmail",
+      u."phone" AS "ownerPhone",
+      u."address" AS "ownerAddress",
+      u."phoneVerified" AS "ownerPhoneVerified",
+      u."createdAt" AS "ownerCreatedAt",
+      e."title",
+      e."categoryId",
+      e."price",
+      e."deliveryRadius",
+      e."address",
+      e."normalizedAddress",
+      e."latitude",
+      e."longitude",
+      e."status",
+      e."rejectionReason",
+      e."reviewedAt",
+      e."createdAt",
+      e."updatedAt",
+      c."title" AS "categoryTitle",
+      c."description" AS "categoryDescription",
+      c."imageUrl" AS "categoryImageUrl",
+      c."createdAt" AS "categoryCreatedAt",
+      c."updatedAt" AS "categoryUpdatedAt"
+    FROM "Equipment" e
+    INNER JOIN "User" u ON u."id" = e."ownerId"
+    INNER JOIN "Category" c ON c."id" = e."categoryId"
+    WHERE e."status" = ${"ACTIVE"}
+      AND (${categoryId ?? null}::text IS NULL OR e."categoryId" = ${categoryId ?? null})
+    ORDER BY e."createdAt" DESC
+  `);
+}
+
+async function uploadListingImages(files: Express.Multer.File[]) {
+  const uploadedImages: Array<{
+    publicId: string;
+    url: string;
+    position: number;
+  }> = [];
+
+  for (const [index, file] of files.entries()) {
+    const result = await uploadEquipmentImage(file);
+
+    uploadedImages.push({
+      publicId: result.publicId,
+      url: result.secureUrl,
+      position: index,
+    });
+  }
+
+  return uploadedImages;
+}
+
+async function cleanupUploadedImages(publicIds: string[]) {
+  const deleteResults = await Promise.allSettled(
+    publicIds.map((publicId) => deleteCloudinaryImage(publicId)),
+  );
+
+  deleteResults.forEach((result, index) => {
+    if (result.status === "rejected") {
+      console.error(
+        `Failed to delete uploaded Cloudinary image ${publicIds[index] ?? "unknown"}:`,
+        result.reason,
+      );
+    }
+  });
+}
+
+function validateImageCountForSubmission(imageCount: number) {
+  if (
+    imageCount < EQUIPMENT_IMAGE_LIMITS.min ||
+    imageCount > EQUIPMENT_IMAGE_LIMITS.max
+  ) {
+    throw new EquipmentServiceError(
+      `Upload between ${EQUIPMENT_IMAGE_LIMITS.min} and ${EQUIPMENT_IMAGE_LIMITS.max} images before submitting for verification.`,
+      400,
+      "INVALID_IMAGE_COUNT",
+    );
+  }
+}
+
+function buildUpdatedImagePayload(
+  retainedImages: EquipmentImageRow[],
+  uploadedImages: Array<{ publicId: string; url: string; position: number }>,
+) {
+  return [
+    ...retainedImages.map((image) => ({
+      url: image.url,
+      publicId: image.publicId,
+    })),
+    ...uploadedImages.map((image) => ({
+      url: image.url,
+      publicId: image.publicId,
+    })),
+  ].map((image, index) => ({
+    ...image,
+    position: index,
+  }));
+}
+
+async function getCategoryById(id: string) {
+  const rows = await db.$queryRaw<CategoryRow[]>(Prisma.sql`
+    SELECT
+      c."id",
+      c."title",
+      c."description",
+      c."imageUrl",
+      c."imagePublicId",
+      c."createdAt",
+      c."updatedAt"
+    FROM "Category" c
+    WHERE c."id" = ${id}
+    LIMIT 1
+  `);
+
+  return rows[0] ?? null;
+}
+
+export async function geocodeEquipmentLocation(address: string) {
+  try {
+    return await geocodeEquipmentAddress(address);
+  } catch (error) {
+    throw new EquipmentServiceError(
+      error instanceof Error
+        ? error.message
+        : "Failed to resolve the equipment address.",
+      400,
+      "GEOCODE_FAILED",
+    );
+  }
+}
+
+export async function getEquipmentAddressSuggestions(input: string) {
+  try {
+    return await autocompleteEquipmentAddresses(input);
+  } catch (error) {
+    throw new EquipmentServiceError(
+      error instanceof Error
+        ? error.message
+        : "Failed to load address suggestions.",
+      400,
+      "ADDRESS_SUGGESTIONS_FAILED",
+    );
+  }
+}
+
+export async function geocodeEquipmentLocationByPlaceId(placeId: string) {
+  try {
+    return await geocodeEquipmentPlaceId(placeId);
+  } catch (error) {
+    throw new EquipmentServiceError(
+      error instanceof Error
+        ? error.message
+        : "Failed to resolve the selected address.",
+      400,
+      "GEOCODE_FAILED",
+    );
+  }
+}
+
+export async function createEquipmentListing(
+  ownerId: string,
+  input: CreateEquipmentInput,
+  files: Express.Multer.File[],
+) {
+  const category = await getCategoryById(input.categoryId);
+
+  if (!category) {
+    throw new EquipmentServiceError(
+      "Category not found.",
+      404,
+      "CATEGORY_NOT_FOUND",
+    );
+  }
+
+  let location;
+
+  try {
+    location = await geocodeEquipmentAddress(input.address);
+  } catch (error) {
+    throw new EquipmentServiceError(
+      error instanceof Error
+        ? error.message
+        : "Failed to resolve the equipment address.",
+      400,
+      "GEOCODE_FAILED",
+    );
+  }
+
+  let uploadedImages: Array<{
+    publicId: string;
+    url: string;
+    position: number;
+  }> = [];
+
+  try {
+    uploadedImages = await uploadListingImages(files);
+
+    const createdEquipmentId = await db.$transaction(async (tx) => {
+      const createdRow = await tx.equipment.create({
+        data: {
+          ownerId,
+          title: input.title.trim(),
+          categoryId: input.categoryId,
+          price: input.price,
+          deliveryRadius: input.deliveryRadius,
+          address: input.address.trim(),
+          normalizedAddress: location.normalizedAddress,
+          latitude: location.latitude,
+          longitude: location.longitude,
+          status: "PENDING_VERIFICATION",
+        },
+      });
+
+      if (!createdRow) {
+        throw new EquipmentServiceError(
+          "Equipment listing could not be created.",
+          500,
+          "EQUIPMENT_CREATE_FAILED",
+        );
+      }
+
+      await tx.equipmentImage.createMany({
+        data: uploadedImages.map((image) => ({
+          equipmentId: createdRow.id,
+          url: image.url,
+          publicId: image.publicId,
+          position: image.position,
+        })),
+      });
+
+      return createdRow.id;
+    });
+
+    const equipment = await queryEquipmentById(createdEquipmentId);
+
+    if (!equipment) {
+      throw new EquipmentServiceError(
+        "Equipment listing could not be created.",
+        500,
+        "EQUIPMENT_CREATE_FAILED",
+      );
+    }
+
+    const imageRows = await queryEquipmentImagesByIds([equipment.id]);
+    return mapRowToPublicEquipment(equipment, imageRows);
+  } catch (error) {
+    await cleanupUploadedImages(uploadedImages.map((image) => image.publicId));
+
+    if (error instanceof EquipmentServiceError) {
+      throw error;
+    }
+
+    throw new EquipmentServiceError(
+      "Failed to create the equipment listing.",
+      500,
+      "EQUIPMENT_CREATE_FAILED",
+    );
+  }
+}
+
+export async function createDraftEquipmentListing(
+  ownerId: string,
+  input: CreateDraftEquipmentInput,
+  files: Express.Multer.File[],
+) {
+  const category = await getCategoryById(input.categoryId);
+
+  if (!category) {
+    throw new EquipmentServiceError(
+      "Category not found.",
+      404,
+      "CATEGORY_NOT_FOUND",
+    );
+  }
+
+  let location;
+
+  try {
+    location = await geocodeEquipmentAddress(input.address);
+  } catch (error) {
+    throw new EquipmentServiceError(
+      error instanceof Error
+        ? error.message
+        : "Failed to resolve the equipment address.",
+      400,
+      "GEOCODE_FAILED",
+    );
+  }
+
+  let uploadedImages: Array<{
+    publicId: string;
+    url: string;
+    position: number;
+  }> = [];
+
+  try {
+    uploadedImages = await uploadListingImages(files);
+
+    const createdEquipmentId = await db.$transaction(async (tx) => {
+      const createdRow = await tx.equipment.create({
+        data: {
+          ownerId,
+          title: input.title.trim(),
+          categoryId: input.categoryId,
+          price: input.price,
+          deliveryRadius: input.deliveryRadius,
+          address: input.address.trim(),
+          normalizedAddress: location.normalizedAddress,
+          latitude: location.latitude,
+          longitude: location.longitude,
+          status: "DRAFT",
+        },
+      });
+
+      if (!createdRow) {
+        throw new EquipmentServiceError(
+          "Equipment draft could not be created.",
+          500,
+          "EQUIPMENT_CREATE_FAILED",
+        );
+      }
+
+      if (uploadedImages.length > 0) {
+        await tx.equipmentImage.createMany({
+          data: uploadedImages.map((image) => ({
+            equipmentId: createdRow.id,
+            url: image.url,
+            publicId: image.publicId,
+            position: image.position,
+          })),
+        });
+      }
+
+      return createdRow.id;
+    });
+
+    const equipment = await queryEquipmentById(createdEquipmentId);
+
+    if (!equipment) {
+      throw new EquipmentServiceError(
+        "Equipment draft could not be created.",
+        500,
+        "EQUIPMENT_CREATE_FAILED",
+      );
+    }
+
+    const imageRows = await queryEquipmentImagesByIds([equipment.id]);
+    return mapRowToPublicEquipment(equipment, imageRows);
+  } catch (error) {
+    await cleanupUploadedImages(uploadedImages.map((image) => image.publicId));
+
+    if (error instanceof EquipmentServiceError) {
+      throw error;
+    }
+
+    throw new EquipmentServiceError(
+      "Failed to create the draft listing.",
+      500,
+      "EQUIPMENT_CREATE_FAILED",
+    );
+  }
+}
+
+export async function getOwnerEquipmentListings(ownerId: string) {
+  const equipmentRows = await queryEquipmentByOwner(ownerId);
+  const imageRows = await queryEquipmentImagesByIds(
+    equipmentRows.map((row) => row.id),
+  );
+  const groupedImages = groupImagesByEquipmentId(imageRows);
+
+  return equipmentRows.map((row) =>
+    mapRowToPublicEquipment(row, groupedImages[row.id] ?? []),
+  );
+}
+
+export async function getPendingEquipmentListings() {
+  const equipmentRows = await queryEquipmentByStatus("PENDING_VERIFICATION");
+  const imageRows = await queryEquipmentImagesByIds(
+    equipmentRows.map((row) => row.id),
+  );
+  const groupedImages = groupImagesByEquipmentId(imageRows);
+
+  return equipmentRows.map((row) =>
+    mapRowToPublicEquipment(row, groupedImages[row.id] ?? []),
+  );
+}
+
+export async function getFeaturedEquipmentListings(limit = 4, renterId?: string) {
+  const equipmentRows = await db.$queryRaw<EquipmentRow[]>(Prisma.sql`
+    SELECT
+      e."id",
+      e."ownerId",
+      u."fullName" AS "ownerFullName",
+      u."email" AS "ownerEmail",
+      u."phone" AS "ownerPhone",
+      u."address" AS "ownerAddress",
+      u."phoneVerified" AS "ownerPhoneVerified",
+      u."createdAt" AS "ownerCreatedAt",
+      e."title",
+      e."categoryId",
+      e."price",
+      e."deliveryRadius",
+      e."address",
+      e."normalizedAddress",
+      e."latitude",
+      e."longitude",
+      e."status",
+      e."rejectionReason",
+      e."reviewedAt",
+      e."createdAt",
+      e."updatedAt",
+      c."title" AS "categoryTitle",
+      c."description" AS "categoryDescription",
+      c."imageUrl" AS "categoryImageUrl",
+      c."createdAt" AS "categoryCreatedAt",
+      c."updatedAt" AS "categoryUpdatedAt"
+    FROM "Equipment" e
+    INNER JOIN "User" u ON u."id" = e."ownerId"
+    INNER JOIN "Category" c ON c."id" = e."categoryId"
+    WHERE e."status" = ${"ACTIVE"}
+    ORDER BY e."createdAt" DESC
+    LIMIT ${limit}
+  `);
+  const imageRows = await queryEquipmentImagesByIds(
+    equipmentRows.map((row) => row.id),
+  );
+  const groupedImages = groupImagesByEquipmentId(imageRows);
+  const wishlistedIds = await getWishlistedEquipmentIdSet(
+    renterId,
+    equipmentRows.map((row) => row.id),
+  );
+
+  return equipmentRows.map((row) =>
+    mapRowToPublicEquipment(
+      row,
+      groupedImages[row.id] ?? [],
+      wishlistedIds.has(row.id),
+    ),
+  );
+}
+
+export async function getPublicEquipmentListings(categoryId?: string, renterId?: string) {
+  const rows = await queryPublicEquipmentByCategory(categoryId?.trim() || undefined);
+  const equipmentIds = rows.map((row) => row.id);
+  const imageRows = await queryEquipmentImagesByIds(equipmentIds);
+  const imagesByEquipmentId = groupImagesByEquipmentId(imageRows);
+  const wishlistedIds = await getWishlistedEquipmentIdSet(renterId, equipmentIds);
+
+  return rows.map((row) =>
+    mapRowToPublicEquipment(
+      row,
+      imagesByEquipmentId[row.id] ?? [],
+      wishlistedIds.has(row.id),
+    ),
+  );
+}
+
+export async function getPublicEquipmentListingById(equipmentId: string, renterId?: string) {
+  const equipment = await queryEquipmentById(equipmentId);
+
+  if (!equipment || equipment.status !== "ACTIVE") {
+    throw new EquipmentServiceError(
+      "Equipment listing not found.",
+      404,
+      "EQUIPMENT_NOT_FOUND",
+    );
+  }
+
+  const imageRows = await queryEquipmentImagesByIds([equipmentId]);
+  const wishlistedIds = await getWishlistedEquipmentIdSet(renterId, [equipmentId]);
+  return mapRowToPublicEquipment(equipment, imageRows, wishlistedIds.has(equipmentId));
+}
+
+async function ensureOwnedEquipment(ownerId: string, equipmentId: string) {
+  const equipment = await queryEquipmentById(equipmentId);
+
+  if (!equipment) {
+    throw new EquipmentServiceError(
+      "Equipment listing not found.",
+      404,
+      "EQUIPMENT_NOT_FOUND",
+    );
+  }
+
+  if (equipment.ownerId !== ownerId) {
+    throw new EquipmentServiceError(
+      "You do not have permission to access this listing.",
+      403,
+      "FORBIDDEN",
+    );
+  }
+
+  const imageRows = await queryEquipmentImagesByIds([equipmentId]);
+  return {
+    row: equipment,
+    imageRows,
+  };
+}
+
+export async function updateOwnerEquipmentListing(
+  ownerId: string,
+  equipmentId: string,
+  input: UpdateOwnerEquipmentInput,
+  files: Express.Multer.File[],
+  nextStatus: "DRAFT" | "PENDING_VERIFICATION" = "DRAFT",
+) {
+  const equipment = await ensureOwnedEquipment(ownerId, equipmentId);
+  const category = await getCategoryById(input.categoryId);
+
+  if (!category) {
+    throw new EquipmentServiceError(
+      "Category not found.",
+      404,
+      "CATEGORY_NOT_FOUND",
+    );
+  }
+
+  let location;
+
+  try {
+    location = await geocodeEquipmentAddress(input.address);
+  } catch (error) {
+    throw new EquipmentServiceError(
+      error instanceof Error
+        ? error.message
+        : "Failed to resolve the equipment address.",
+      400,
+      "GEOCODE_FAILED",
+    );
+  }
+
+  const retainedImageSet = new Set(input.retainedImageIds);
+  const retainedImages = equipment.imageRows.filter((image) =>
+    retainedImageSet.has(image.id),
+  );
+
+  if (retainedImages.length !== retainedImageSet.size) {
+    throw new EquipmentServiceError(
+      "One or more retained images are invalid.",
+      400,
+      "INVALID_IMAGE_REFERENCE",
+    );
+  }
+
+  let uploadedImages: Array<{
+    publicId: string;
+    url: string;
+    position: number;
+  }> = [];
+
+  try {
+    uploadedImages = await uploadListingImages(files);
+
+    const nextImages = buildUpdatedImagePayload(retainedImages, uploadedImages);
+
+    if (nextStatus === "PENDING_VERIFICATION") {
+      validateImageCountForSubmission(nextImages.length);
+    }
+
+    await db.$transaction(async (tx) => {
+      await tx.equipment.update({
+        where: { id: equipment.row.id },
+        data: {
+          title: input.title.trim(),
+          categoryId: input.categoryId,
+          price: input.price,
+          deliveryRadius: input.deliveryRadius,
+          address: input.address.trim(),
+          normalizedAddress: location.normalizedAddress,
+          latitude: location.latitude,
+          longitude: location.longitude,
+          status: nextStatus,
+          rejectionReason:
+            nextStatus === "PENDING_VERIFICATION"
+              ? null
+              : equipment.row.rejectionReason,
+          reviewedById: null,
+          reviewedAt: null,
+        },
+      });
+
+      await tx.equipmentImage.deleteMany({
+        where: { equipmentId: equipment.row.id },
+      });
+
+      if (nextImages.length > 0) {
+        await tx.equipmentImage.createMany({
+          data: nextImages.map((image) => ({
+            equipmentId: equipment.row.id,
+            url: image.url,
+            publicId: image.publicId,
+            position: image.position,
+          })),
+        });
+      }
+    });
+
+    const removedPublicIds = equipment.imageRows
+      .filter((image) => !retainedImageSet.has(image.id))
+      .map((image) => image.publicId);
+
+    if (removedPublicIds.length > 0) {
+      await cleanupUploadedImages(removedPublicIds);
+    }
+
+    const refreshed = await queryEquipmentById(equipment.row.id);
+
+    if (!refreshed) {
+      throw new EquipmentServiceError(
+        "Equipment listing not found.",
+        404,
+        "EQUIPMENT_NOT_FOUND",
+      );
+    }
+
+    const imageRows = await queryEquipmentImagesByIds([equipment.row.id]);
+    return mapRowToPublicEquipment(refreshed, imageRows);
+  } catch (error) {
+    await cleanupUploadedImages(uploadedImages.map((image) => image.publicId));
+
+    if (error instanceof EquipmentServiceError) {
+      throw error;
+    }
+
+    throw new EquipmentServiceError(
+      nextStatus === "PENDING_VERIFICATION"
+        ? "Failed to submit the listing for verification."
+        : "Failed to save the draft listing.",
+      500,
+      "EQUIPMENT_UPDATE_FAILED",
+    );
+  }
+}
+
+export async function deleteEquipmentListing(
+  ownerId: string,
+  equipmentId: string,
+) {
+  const equipment = await ensureOwnedEquipment(ownerId, equipmentId);
+
+  await cleanupUploadedImages(
+    equipment.imageRows.map((image) => image.publicId),
+  );
+
+  const deletedEquipment = await db.$queryRaw<{ id: string }[]>(Prisma.sql`
+    DELETE FROM "Equipment"
+    WHERE "id" = ${equipment.row.id}
+      AND "ownerId" = ${ownerId}
+    RETURNING "id"
+  `);
+
+  if (deletedEquipment.length === 0) {
+    throw new EquipmentServiceError(
+      "Equipment listing not found.",
+      404,
+      "EQUIPMENT_NOT_FOUND",
+    );
+  }
+
+  return { id: equipment.row.id };
+}
+
+async function ensureAdminEquipment(equipmentId: string) {
+  const equipment = await queryEquipmentById(equipmentId);
+
+  if (!equipment) {
+    throw new EquipmentServiceError(
+      "Equipment listing not found.",
+      404,
+      "EQUIPMENT_NOT_FOUND",
+    );
+  }
+
+  return equipment;
+}
+
+function ensurePendingEquipmentStatus(status: string) {
+  if (ensureAllowedStatus(status) !== "PENDING_VERIFICATION") {
+    throw new EquipmentServiceError(
+      "Only pending listings can be moderated.",
+      409,
+      "INVALID_STATUS",
+    );
+  }
+}
+
+export async function approveEquipmentListing(
+  adminId: string,
+  equipmentId: string,
+) {
+  const equipment = await ensureAdminEquipment(equipmentId);
+  ensurePendingEquipmentStatus(equipment.status);
+
+  const updatedEquipment = await db.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<EquipmentRow[]>(Prisma.sql`
+      UPDATE "Equipment"
+      SET
+        "status" = ${"ACTIVE"},
+        "rejectionReason" = NULL,
+        "reviewedById" = ${adminId},
+        "reviewedAt" = NOW(),
+        "updatedAt" = NOW()
+      WHERE "id" = ${equipment.id}
+        AND "status" = ${"PENDING_VERIFICATION"}
+      RETURNING "id"
+    `);
+
+    if (rows[0]) {
+      await createEquipmentApprovedNotification(tx, {
+        ownerId: equipment.ownerId,
+        equipmentId: equipment.id,
+        listingTitle: equipment.title,
+      });
+    }
+
+    return rows;
+  });
+
+  const row = updatedEquipment[0];
+
+  if (!row) {
+    throw new EquipmentServiceError(
+      "Only pending listings can be moderated.",
+      409,
+      "INVALID_STATUS",
+    );
+  }
+
+  const refreshed = await queryEquipmentById(equipment.id);
+
+  if (!refreshed) {
+    throw new EquipmentServiceError(
+      "Equipment listing not found.",
+      404,
+      "EQUIPMENT_NOT_FOUND",
+    );
+  }
+
+  const imageRows = await queryEquipmentImagesByIds([equipment.id]);
+  return mapRowToPublicEquipment(refreshed, imageRows);
+}
+
+export async function rejectEquipmentListing(
+  adminId: string,
+  equipmentId: string,
+  input: RejectEquipmentInput,
+) {
+  const equipment = await ensureAdminEquipment(equipmentId);
+  ensurePendingEquipmentStatus(equipment.status);
+
+  const updatedEquipment = await db.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<EquipmentRow[]>(Prisma.sql`
+      UPDATE "Equipment"
+      SET
+        "status" = ${"REJECTED"},
+        "rejectionReason" = ${input.reason.trim()},
+        "reviewedById" = ${adminId},
+        "reviewedAt" = NOW(),
+        "updatedAt" = NOW()
+      WHERE "id" = ${equipment.id}
+        AND "status" = ${"PENDING_VERIFICATION"}
+      RETURNING "id"
+    `);
+
+    if (rows[0]) {
+      await createEquipmentRejectedNotification(tx, {
+        ownerId: equipment.ownerId,
+        equipmentId: equipment.id,
+        listingTitle: equipment.title,
+        rejectionReason: input.reason,
+      });
+    }
+
+    return rows;
+  });
+
+  const row = updatedEquipment[0];
+
+  if (!row) {
+    throw new EquipmentServiceError(
+      "Only pending listings can be moderated.",
+      409,
+      "INVALID_STATUS",
+    );
+  }
+
+  const refreshed = await queryEquipmentById(equipment.id);
+
+  if (!refreshed) {
+    throw new EquipmentServiceError(
+      "Equipment listing not found.",
+      404,
+      "EQUIPMENT_NOT_FOUND",
+    );
+  }
+
+  const imageRows = await queryEquipmentImagesByIds([equipment.id]);
+  return mapRowToPublicEquipment(refreshed, imageRows);
+}

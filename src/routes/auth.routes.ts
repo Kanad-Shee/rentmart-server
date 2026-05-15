@@ -1,0 +1,103 @@
+import { Router } from "express";
+import { UserRole } from "../generated/prisma/client";
+import {
+  AUTH_RATE_LIMITS,
+  getBodyEmailRateLimitKey,
+  getIpRateLimitKey,
+} from "../configs/rate-limit.config";
+import { authenticateUser, requireRole } from "../middlewares/auth.middleware";
+import { createRateLimiter } from "../middlewares/rate-limit.middleware";
+import { validateRequest } from "../middlewares/validate.middleware";
+import {
+  dashboardMetricsController,
+  listUsersController,
+  logoutController,
+  meController,
+  resendOtpController,
+  signInController,
+  signUpController,
+  startPhoneVerificationController,
+  updatePasswordController,
+  updateProfileController,
+  verifyOtpController,
+  verifyPhoneController,
+} from "../controllers/auth.controller";
+import {
+  resendOtpSchema,
+  signInSchema,
+  signUpSchema,
+  listUsersQuerySchema,
+  startPhoneVerificationSchema,
+  updatePasswordSchema,
+  updateProfileSchema,
+  verifyOtpSchema,
+  verifyPhoneSchema,
+} from "../validators/auth.schema";
+
+const authRouter = Router();
+
+const signupRateLimit = createRateLimiter({
+  ...AUTH_RATE_LIMITS.signup,
+  getIdentifier: getIpRateLimitKey,
+});
+
+const signInRateLimit = createRateLimiter({
+  ...AUTH_RATE_LIMITS.signin,
+  getIdentifier: getBodyEmailRateLimitKey,
+});
+
+const verifyOtpRateLimit = createRateLimiter({
+  ...AUTH_RATE_LIMITS.verifyOtp,
+  getIdentifier: getBodyEmailRateLimitKey,
+});
+
+const resendOtpRateLimit = createRateLimiter({
+  ...AUTH_RATE_LIMITS.resendOtp,
+  getIdentifier: getBodyEmailRateLimitKey,
+});
+
+authRouter.post("/signup", signupRateLimit, validateRequest(signUpSchema), signUpController);
+authRouter.post("/signin", signInRateLimit, validateRequest(signInSchema), signInController);
+authRouter.post("/verify-otp", verifyOtpRateLimit, validateRequest(verifyOtpSchema), verifyOtpController);
+authRouter.post("/resend-otp", resendOtpRateLimit, validateRequest(resendOtpSchema), resendOtpController);
+authRouter.post(
+  "/phone/start",
+  authenticateUser,
+  validateRequest(startPhoneVerificationSchema),
+  startPhoneVerificationController
+);
+authRouter.post(
+  "/phone/verify",
+  authenticateUser,
+  validateRequest(verifyPhoneSchema),
+  verifyPhoneController
+);
+authRouter.patch(
+  "/profile",
+  authenticateUser,
+  validateRequest(updateProfileSchema),
+  updateProfileController,
+);
+authRouter.patch(
+  "/password",
+  authenticateUser,
+  validateRequest(updatePasswordSchema),
+  updatePasswordController,
+);
+authRouter.get(
+  "/users",
+  authenticateUser,
+  requireRole(UserRole.ADMIN),
+  validateRequest(listUsersQuerySchema, "query"),
+  listUsersController,
+);
+authRouter.get(
+  "/dashboard-metrics",
+  authenticateUser,
+  requireRole(UserRole.ADMIN),
+  dashboardMetricsController,
+);
+authRouter.post("/logout", authenticateUser, logoutController);
+authRouter.get("/me", authenticateUser, meController);
+
+export { authRouter };

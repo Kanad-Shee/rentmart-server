@@ -6,6 +6,7 @@ guides
 out
 dist
 *.tgz
+docs
 
 # code coverage
 coverage
@@ -37,4 +38,3 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 /src/generated/prisma
 
 /src/generated/prisma
-
