@@ -125,12 +125,24 @@ function createTransporter() {
   const port = getEnv("SMTP_PORT");
   const user = getEnv("SMTP_USER");
   const pass = getEnv("SMTP_PASS");
+  const secure = getEnv("SMTP_SECURE") === "true";
 
   if (host && port && user && pass) {
+    console.log("[mailer] configuring SMTP transporter", {
+      nodeEnv: process.env.NODE_ENV ?? "unknown",
+      host,
+      port,
+      secure,
+      user,
+      hasPass: Boolean(pass),
+      from: getFromAddress(),
+      replyTo: getSupportEmail(),
+    });
+
     transporter = nodemailer.createTransport({
       host,
       port: Number(port),
-      secure: getEnv("SMTP_SECURE") === "true",
+      secure,
       auth: {
         user,
         pass,
@@ -141,11 +153,21 @@ function createTransporter() {
   }
 
   if (process.env.NODE_ENV === "production") {
+    console.error("[mailer] SMTP configuration missing in production", {
+      hasHost: Boolean(host),
+      hasPort: Boolean(port),
+      hasUser: Boolean(user),
+      hasPass: Boolean(pass),
+      from: getFromAddress(),
+      replyTo: getSupportEmail(),
+    });
+
     throw new Error(
       "SMTP is not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and SMTP_FROM before sending mail."
     );
   }
 
+  console.log("[mailer] using local development stream transport");
   transporter = nodemailer.createTransport({
     streamTransport: true,
     buffer: true,
@@ -158,14 +180,47 @@ function createTransporter() {
 export async function sendMailMessage(input: SendMailInput) {
   const mailer = createTransporter();
 
-  return mailer.sendMail({
-    from: getFromAddress(),
-    to: Array.isArray(input.to) ? input.to.map(formatRecipient) : formatRecipient(input.to),
+  const to = Array.isArray(input.to)
+    ? input.to.map(formatRecipient)
+    : formatRecipient(input.to);
+
+  console.log("[mailer] sending email", {
+    to,
     subject: input.subject,
-    text: input.text,
-    ...(input.html ? { html: input.html } : {}),
-    ...(input.replyTo ? { replyTo: input.replyTo } : {}),
+    from: getFromAddress(),
+    replyTo: input.replyTo ?? null,
   });
+
+  try {
+    const result = await mailer.sendMail({
+      from: getFromAddress(),
+      to,
+      subject: input.subject,
+      text: input.text,
+      ...(input.html ? { html: input.html } : {}),
+      ...(input.replyTo ? { replyTo: input.replyTo } : {}),
+    });
+
+    console.log("[mailer] email sent", {
+      to,
+      subject: input.subject,
+      messageId: result.messageId ?? null,
+      accepted: result.accepted ?? [],
+      rejected: result.rejected ?? [],
+      response: result.response ?? null,
+    });
+
+    return result;
+  } catch (error) {
+    console.error("[mailer] sendMail failed", {
+      to,
+      subject: input.subject,
+      message:
+        error instanceof Error ? error.message : "Unknown mailer error",
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    throw error;
+  }
 }
 
 export async function sendOtpEmail(input: SendOtpEmailInput) {
