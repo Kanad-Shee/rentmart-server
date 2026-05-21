@@ -12,12 +12,12 @@ import { wishlistRouter } from "./routes/wishlist.routes";
 const app = express();
 const port = 8080;
 
-app.use("/payments/razorpay/webhook", express.raw({ type: "*/*" }));
+app.use("/payments/cashfree/webhook", express.raw({ type: "*/*" }));
 app.use(express.json());
 app.use(cookieParser());
 
 app.get("/", (req: Request, res: Response) => {
-  res.json({ message: "Hello from Bun + Express + TypeScript!" });
+  res.json({ success: true, message: "Server is healthy and running fine!" });
 });
 
 app.use("/auth", authRouter);
@@ -30,5 +30,5 @@ app.use("/support-queries", supportQueryRouter);
 app.use("/wishlists", wishlistRouter);
 
 app.listen(port, () => {
-  console.log(`Listening on http://localhost:${port}...`);
+  console.log(`Server is running on port ${port}`);
 });

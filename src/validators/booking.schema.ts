@@ -64,18 +64,10 @@ export const disputeBookingSchema = z.object({
 export const createBookingPaymentOrderSchema = z.object({});
 
 export const verifyBookingPaymentSchema = z.object({
-  razorpayOrderId: z
-    .string({ message: "Razorpay order id is required." })
+  cashfreeOrderId: z
+    .string({ message: "Cashfree order id is required." })
     .trim()
-    .min(1, "Razorpay order id is required."),
-  razorpayPaymentId: z
-    .string({ message: "Razorpay payment id is required." })
-    .trim()
-    .min(1, "Razorpay payment id is required."),
-  razorpaySignature: z
-    .string({ message: "Razorpay signature is required." })
-    .trim()
-    .min(1, "Razorpay signature is required."),
+    .min(1, "Cashfree order id is required."),
 });
 
 export const manualSettlementSchema = z.object({

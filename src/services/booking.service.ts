@@ -7,7 +7,12 @@ import {
 } from "../generated/prisma/client";
 import { db } from "../lib/db";
 import {
+  canOwnerCompleteBookingStatus,
+  canOwnerDisputeBookingStatus,
+} from "../lib/booking-state";
+import {
   BOOKING_DAMAGE_WAIVER_FEE,
+  BOOKING_DISPUTE_IMAGE_LIMITS,
   BOOKING_OWNER_APPROVAL_WINDOW_HOURS,
   BOOKING_PAYMENT_PROVIDER,
   BOOKING_PLATFORM_FEE_RATE,
@@ -17,14 +22,16 @@ import {
   BOOKING_SECURITY_DEPOSIT_RATE,
 } from "../configs/booking.config";
 import { sendBookingEventEmail } from "../lib/mailer";
+import { deleteCloudinaryImage, uploadBookingDisputeImage } from "../lib/cloudinary";
 import {
-  createRazorpayOrder,
-  getRazorpayKeyId,
-  RazorpayApiError,
+  CashfreeApiError,
+  createCashfreeOrder,
+  getCashfreeCheckoutEnvironment,
+  getCashfreeOrder,
+  getCashfreePaymentsForOrder,
   toPaise,
-  verifyRazorpayCheckoutSignature,
-  verifyRazorpayWebhookSignature,
-} from "../lib/razorpay";
+  verifyCashfreeWebhookSignature,
+} from "../lib/cashfree";
 import type { BookingPaymentOrder, SafeBooking } from "../types/booking";
 import type { AdminWebhookEvent } from "../types/payment";
 import {
@@ -74,6 +81,41 @@ function parseDateOnly(value: string) {
 
 function formatDateOnly(date: Date) {
   return date.toISOString().slice(0, 10);
+}
+
+async function uploadBookingDisputeImages(files: Express.Multer.File[]) {
+  const uploadedImages: Array<{
+    publicId: string;
+    url: string;
+    position: number;
+  }> = [];
+
+  for (const [index, file] of files.entries()) {
+    const result = await uploadBookingDisputeImage(file);
+
+    uploadedImages.push({
+      publicId: result.publicId,
+      url: result.secureUrl,
+      position: index,
+    });
+  }
+
+  return uploadedImages;
+}
+
+async function cleanupUploadedImages(publicIds: string[]) {
+  const deleteResults = await Promise.allSettled(
+    publicIds.map((publicId) => deleteCloudinaryImage(publicId)),
+  );
+
+  deleteResults.forEach((result, index) => {
+    if (result.status === "rejected") {
+      console.error(
+        `Failed to delete uploaded Cloudinary image ${publicIds[index] ?? "unknown"}:`,
+        result.reason,
+      );
+    }
+  });
 }
 
 function createBookingEventPayload(
@@ -182,8 +224,8 @@ function isPaymentWindowExpired(booking: {
   );
 }
 
-function mapRazorpayError(error: unknown): never {
-  if (error instanceof RazorpayApiError) {
+function mapCashfreeError(error: unknown): never {
+  if (error instanceof CashfreeApiError) {
     throw new BookingServiceError(error.message, error.statusCode, error.code);
   }
 
@@ -200,20 +242,82 @@ async function sendBookingEventEmailSafe(
   }
 }
 
-function mapBooking(booking: Prisma.BookingGetPayload<{
-  include: {
-    equipment: {
-      include: {
-        images: {
-          orderBy: { position: "asc" };
-          take: 1;
-        };
-      };
-    };
-    renter: true;
-    owner: true;
+function mapBooking(booking: {
+  id: string;
+  equipmentId: string;
+  renterId: string;
+  ownerId: string;
+  startDate: Date;
+  endDate: Date;
+  rentalDays: number;
+  rentalFee: number;
+  platformFee: number;
+  damageWaiverFee: number;
+  securityDeposit: number;
+  totalAuthorized: number;
+  currency: string;
+  isPaymentCompleted: boolean;
+  financialStatus: FinancialStatus;
+  paymentProvider: string | null;
+  paymentIntentId: string | null;
+  paymentAuthorizationId: string | null;
+  cashfreeOrderId: string | null;
+  cashfreePaymentId: string | null;
+  cashfreePaymentSessionId: string | null;
+  payoutLinkedAccountId: string | null;
+  paymentAmountInPaise: number | null;
+  paymentCurrency: string | null;
+  lastPaymentError: string | null;
+  paymentCapturedAt: Date | null;
+  ownerActionDeadlineAt: Date;
+  renterPaymentDeadlineAt: Date | null;
+  conditionLoggedAt: Date | null;
+  completedAt: Date | null;
+  cancelledAt: Date | null;
+  disputedAt: Date | null;
+  paymentFailedAt: Date | null;
+  paymentVoidedAt: Date | null;
+  paymentReleasedAt: Date | null;
+  paymentDisputedAt: Date | null;
+  ownerPayoutSettledAt: Date | null;
+  depositRefundInitiatedAt: Date | null;
+  depositRefundedAt: Date | null;
+  ownerPayoutStatus: OwnerPayoutStatus;
+  ownerPaidAt: Date | null;
+  ownerPayoutReference: string | null;
+  depositRefundStatus: DepositRefundStatus;
+  depositRefundReference: string | null;
+  status: BookingStatus;
+  ownerDecisionReason: string | null;
+  disputeReason: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  equipment: {
+    id: string;
+    title: string;
+    price: number;
+    normalizedAddress: string;
+    status: string;
+    images: Array<{ url: string }>;
   };
-}>): SafeBooking {
+  renter: {
+    id: string;
+    fullName: string;
+    email: string;
+    phoneVerified: boolean;
+  };
+  owner: {
+    id: string;
+    fullName: string;
+    email: string;
+    phoneVerified: boolean;
+  };
+  disputeImages?: Array<{
+    id: string;
+    url: string;
+    position: number;
+  }>;
+}): SafeBooking {
   return {
     id: booking.id,
     equipmentId: booking.equipmentId,
@@ -233,10 +337,9 @@ function mapBooking(booking: Prisma.BookingGetPayload<{
     paymentProvider: booking.paymentProvider,
     paymentIntentId: booking.paymentIntentId,
     paymentAuthorizationId: booking.paymentAuthorizationId,
-    razorpayOrderId: booking.razorpayOrderId,
-    razorpayPaymentId: booking.razorpayPaymentId,
-    razorpayTransferId: booking.razorpayTransferId,
-    razorpayRefundId: booking.razorpayRefundId,
+    cashfreeOrderId: booking.cashfreeOrderId,
+    cashfreePaymentId: booking.cashfreePaymentId,
+    cashfreePaymentSessionId: booking.cashfreePaymentSessionId,
     payoutLinkedAccountId: booking.payoutLinkedAccountId,
     paymentAmountInPaise: booking.paymentAmountInPaise,
     paymentCurrency: booking.paymentCurrency,
@@ -263,6 +366,13 @@ function mapBooking(booking: Prisma.BookingGetPayload<{
     status: booking.status,
     ownerDecisionReason: booking.ownerDecisionReason,
     disputeReason: booking.disputeReason,
+    disputeImages: [...(booking.disputeImages ?? [])]
+      .sort((left, right) => left.position - right.position)
+      .map((image) => ({
+        id: image.id,
+        url: image.url,
+        position: image.position,
+      })),
     createdAt: booking.createdAt.toISOString(),
     updatedAt: booking.updatedAt.toISOString(),
     equipment: {
@@ -304,6 +414,9 @@ async function getBookingById(bookingId: string) {
       },
       renter: true,
       owner: true,
+      disputeImages: {
+        orderBy: { position: "asc" },
+      },
     },
   });
 }
@@ -745,6 +858,9 @@ export async function getRenterBookings(renterId: string) {
       },
       renter: true,
       owner: true,
+      disputeImages: {
+        orderBy: { position: "asc" },
+      },
     },
   });
 
@@ -768,6 +884,9 @@ export async function getOwnerBookings(ownerId: string) {
       },
       renter: true,
       owner: true,
+      disputeImages: {
+        orderBy: { position: "asc" },
+      },
     },
   });
 
@@ -790,6 +909,9 @@ export async function getAdminBookings(_adminId: string) {
       },
       renter: true,
       owner: true,
+      disputeImages: {
+        orderBy: { position: "asc" },
+      },
     },
   });
 
@@ -829,24 +951,15 @@ function getNestedString(source: unknown, ...keys: string[]) {
 }
 
 function buildWebhookReferenceMap(event: { entityId: string | null; payload: unknown }) {
-  const paymentEntity = getNestedRecord(event.payload, "payload", "payment", "entity");
-  const refundEntity = getNestedRecord(event.payload, "payload", "refund", "entity");
-  const transferEntity = getNestedRecord(event.payload, "payload", "transfer", "entity");
+  const orderEntity = getNestedRecord(event.payload, "data", "order");
+  const paymentEntity = getNestedRecord(event.payload, "data", "payment");
 
-  const orderId =
-    getNestedString(paymentEntity, "order_id") ??
-    getNestedString(refundEntity, "order_id");
-  const paymentId =
-    getNestedString(paymentEntity, "id") ??
-    getNestedString(refundEntity, "payment_id");
-  const transferId = getNestedString(transferEntity, "id");
-  const refundId = getNestedString(refundEntity, "id");
+  const orderId = getNestedString(orderEntity, "order_id");
+  const paymentId = getNestedString(paymentEntity, "cf_payment_id");
 
   return {
     orderId,
     paymentId,
-    transferId,
-    refundId,
     entityId: event.entityId,
   };
 }
@@ -866,8 +979,8 @@ function getWebhookEventStatus(input: {
   return "processed" satisfies AdminWebhookEvent["status"];
 }
 
-export async function getAdminRazorpayWebhookEvents(_adminId: string) {
-  const events = await db.razorpayWebhookEvent.findMany({
+export async function getAdminCashfreeWebhookEvents(_adminId: string) {
+  const events = await db.cashfreeWebhookEvent.findMany({
     orderBy: [{ createdAt: "desc" }, { processedAt: "desc" }],
   });
 
@@ -889,41 +1002,20 @@ export async function getAdminRazorpayWebhookEvents(_adminId: string) {
         .filter(Boolean),
     ),
   ) as string[];
-  const transferIds = Array.from(
-    new Set(
-      references
-        .flatMap((reference) => [reference.transferId, reference.entityId])
-        .filter(Boolean),
-    ),
-  ) as string[];
-  const refundIds = Array.from(
-    new Set(
-      references
-        .flatMap((reference) => [reference.refundId, reference.entityId])
-        .filter(Boolean),
-    ),
-  ) as string[];
 
   const relatedBookings =
-    orderIds.length > 0 ||
-    paymentIds.length > 0 ||
-    transferIds.length > 0 ||
-    refundIds.length > 0
+    orderIds.length > 0 || paymentIds.length > 0
       ? await db.booking.findMany({
           where: {
             OR: [
-              orderIds.length > 0 ? { razorpayOrderId: { in: orderIds } } : undefined,
-              paymentIds.length > 0 ? { razorpayPaymentId: { in: paymentIds } } : undefined,
-              transferIds.length > 0 ? { razorpayTransferId: { in: transferIds } } : undefined,
-              refundIds.length > 0 ? { razorpayRefundId: { in: refundIds } } : undefined,
+              orderIds.length > 0 ? { cashfreeOrderId: { in: orderIds } } : undefined,
+              paymentIds.length > 0 ? { cashfreePaymentId: { in: paymentIds } } : undefined,
             ].filter(Boolean) as Prisma.BookingWhereInput[],
           },
           select: {
             id: true,
-            razorpayOrderId: true,
-            razorpayPaymentId: true,
-            razorpayTransferId: true,
-            razorpayRefundId: true,
+            cashfreeOrderId: true,
+            cashfreePaymentId: true,
             equipment: {
               select: {
                 title: true,
@@ -945,24 +1037,14 @@ export async function getAdminRazorpayWebhookEvents(_adminId: string) {
 
   const bookingsByOrderId = new Map<string, (typeof relatedBookings)[number]>();
   const bookingsByPaymentId = new Map<string, (typeof relatedBookings)[number]>();
-  const bookingsByTransferId = new Map<string, (typeof relatedBookings)[number]>();
-  const bookingsByRefundId = new Map<string, (typeof relatedBookings)[number]>();
 
   for (const booking of relatedBookings) {
-    if (booking.razorpayOrderId) {
-      bookingsByOrderId.set(booking.razorpayOrderId, booking);
+    if (booking.cashfreeOrderId) {
+      bookingsByOrderId.set(booking.cashfreeOrderId, booking);
     }
 
-    if (booking.razorpayPaymentId) {
-      bookingsByPaymentId.set(booking.razorpayPaymentId, booking);
-    }
-
-    if (booking.razorpayTransferId) {
-      bookingsByTransferId.set(booking.razorpayTransferId, booking);
-    }
-
-    if (booking.razorpayRefundId) {
-      bookingsByRefundId.set(booking.razorpayRefundId, booking);
+    if (booking.cashfreePaymentId) {
+      bookingsByPaymentId.set(booking.cashfreePaymentId, booking);
     }
   }
 
@@ -975,10 +1057,6 @@ export async function getAdminRazorpayWebhookEvents(_adminId: string) {
       (refs.orderId ? bookingsByOrderId.get(refs.orderId) : null) ??
       (refs.paymentId ? bookingsByPaymentId.get(refs.paymentId) : null) ??
       (refs.entityId ? bookingsByPaymentId.get(refs.entityId) : null) ??
-      (refs.transferId ? bookingsByTransferId.get(refs.transferId) : null) ??
-      (refs.entityId ? bookingsByTransferId.get(refs.entityId) : null) ??
-      (refs.refundId ? bookingsByRefundId.get(refs.refundId) : null) ??
-      (refs.entityId ? bookingsByRefundId.get(refs.entityId) : null) ??
       null;
 
     return {
@@ -991,8 +1069,6 @@ export async function getAdminRazorpayWebhookEvents(_adminId: string) {
       payload: event.payload,
       linkedOrderId: refs.orderId,
       linkedPaymentId: refs.paymentId,
-      linkedTransferId: refs.transferId,
-      linkedRefundId: refs.refundId,
       linkedBooking: linkedBooking
         ? {
             id: linkedBooking.id,
@@ -1131,27 +1207,43 @@ export async function createBookingPaymentOrder(
   }
 
   const amountInPaise = toPaise(booking.totalAuthorized);
-  const receipt = booking.razorpayOrderId ?? generatePaymentReference("booking");
+  const customerPhone = booking.renter.phone?.trim();
 
-  let orderId = booking.razorpayOrderId;
+  if (!customerPhone) {
+    throw new BookingServiceError(
+      "Add a verified phone number before completing payment.",
+      409,
+      "PHONE_NOT_AVAILABLE",
+    );
+  }
 
-  if (!orderId) {
+  let orderId = booking.cashfreeOrderId;
+  let paymentSessionId = booking.cashfreePaymentSessionId;
+
+  if (!orderId || !paymentSessionId) {
+    const nextOrderId = orderId ?? generatePaymentReference("booking");
+    const nextIdempotencyKey =
+      idempotencyKey?.trim() || booking.paymentIdempotencyKey || generatePaymentReference("order");
+
     try {
-      const order = await createRazorpayOrder({
-        amount: amountInPaise,
+      const order = await createCashfreeOrder({
+        orderId: nextOrderId,
+        amount: booking.totalAuthorized,
         currency: booking.currency,
-        receipt,
-        notes: {
-          bookingId: booking.id,
-          equipmentId: booking.equipmentId,
-          renterId: booking.renterId,
-          ownerId: booking.ownerId,
+        customer: {
+          id: booking.renterId,
+          name: booking.renter.fullName,
+          email: booking.renter.email,
+          phone: customerPhone,
         },
+        note: `Rent ${booking.equipment.title} on RentMart`,
+        idempotencyKey: nextIdempotencyKey,
       });
 
-      orderId = order.id;
+      orderId = order.order_id;
+      paymentSessionId = order.payment_session_id;
     } catch (error) {
-      mapRazorpayError(error);
+      mapCashfreeError(error);
     }
   }
 
@@ -1160,8 +1252,10 @@ export async function createBookingPaymentOrder(
     data: {
       paymentProvider: BOOKING_PAYMENT_PROVIDER,
       paymentIntentId: orderId,
-      paymentIdempotencyKey: idempotencyKey?.trim() || generatePaymentReference("order"),
-      razorpayOrderId: orderId,
+      paymentIdempotencyKey:
+        idempotencyKey?.trim() || booking.paymentIdempotencyKey || generatePaymentReference("order"),
+      cashfreeOrderId: orderId,
+      cashfreePaymentSessionId: paymentSessionId,
       payoutLinkedAccountId: null,
       paymentAmountInPaise: amountInPaise,
       paymentCurrency: booking.currency,
@@ -1184,10 +1278,11 @@ export async function createBookingPaymentOrder(
 
   return {
     bookingId: updatedBooking.id,
-    orderId: updatedBooking.razorpayOrderId ?? updatedBooking.paymentIntentId ?? "",
+    orderId: updatedBooking.cashfreeOrderId ?? updatedBooking.paymentIntentId ?? "",
+    paymentSessionId: updatedBooking.cashfreePaymentSessionId ?? "",
     amount: updatedBooking.paymentAmountInPaise ?? amountInPaise,
     currency: updatedBooking.paymentCurrency ?? updatedBooking.currency,
-    keyId: getRazorpayKeyId(),
+    environment: getCashfreeCheckoutEnvironment(),
     renterName: updatedBooking.renter.fullName,
     renterEmail: updatedBooking.renter.email,
     renterPhone: updatedBooking.renter.phone ?? null,
@@ -1201,9 +1296,7 @@ export async function verifyCompletedBookingPayment(
   input: VerifyBookingPaymentInput,
 ) {
   const booking = await ensureBooking(bookingId);
-  const razorpayOrderId = input.razorpayOrderId.trim();
-  const razorpayPaymentId = input.razorpayPaymentId.trim();
-  const razorpaySignature = input.razorpaySignature.trim();
+  const cashfreeOrderId = input.cashfreeOrderId.trim();
 
   if (booking.renterId !== renterId) {
     throw new BookingServiceError(
@@ -1213,33 +1306,11 @@ export async function verifyCompletedBookingPayment(
     );
   }
 
-  if (booking.razorpayOrderId && booking.razorpayOrderId !== razorpayOrderId) {
+  if (booking.cashfreeOrderId && booking.cashfreeOrderId !== cashfreeOrderId) {
     throw new BookingServiceError(
       "The payment order does not match this booking.",
       409,
       "PAYMENT_ORDER_MISMATCH",
-    );
-  }
-
-  if (booking.razorpayPaymentId && booking.razorpayPaymentId !== razorpayPaymentId) {
-    throw new BookingServiceError(
-      "The payment reference does not match this booking.",
-      409,
-      "PAYMENT_REFERENCE_MISMATCH",
-    );
-  }
-
-  const isValidSignature = verifyRazorpayCheckoutSignature({
-    orderId: razorpayOrderId,
-    paymentId: razorpayPaymentId,
-    signature: razorpaySignature,
-  });
-
-  if (!isValidSignature) {
-    throw new BookingServiceError(
-      "Payment verification failed.",
-      400,
-      "PAYMENT_SIGNATURE_INVALID",
     );
   }
 
@@ -1257,13 +1328,55 @@ export async function verifyCompletedBookingPayment(
     "INVALID_BOOKING_STATUS",
   );
 
+  let order;
+
+  try {
+    order = await getCashfreeOrder(cashfreeOrderId);
+  } catch (error) {
+    mapCashfreeError(error);
+  }
+
+  if (!order || order.order_id !== cashfreeOrderId) {
+    throw new BookingServiceError(
+      "The payment order could not be verified.",
+      400,
+      "PAYMENT_ORDER_INVALID",
+    );
+  }
+
+  if (roundCurrency(order.order_amount) !== roundCurrency(booking.totalAuthorized)) {
+    throw new BookingServiceError(
+      "The verified payment amount does not match this booking.",
+      409,
+      "PAYMENT_AMOUNT_MISMATCH",
+    );
+  }
+
+  if (order.order_status === "PAID") {
+    let paymentId = booking.cashfreePaymentId ?? booking.paymentAuthorizationId ?? order.cf_order_id;
+
+    try {
+      const payments = await getCashfreePaymentsForOrder(cashfreeOrderId);
+      const successfulPayment = [...payments]
+        .reverse()
+        .find((payment) => payment.payment_status === "SUCCESS");
+
+      if (successfulPayment?.cf_payment_id) {
+        paymentId = successfulPayment.cf_payment_id;
+      }
+    } catch (error) {
+      mapCashfreeError(error);
+    }
+
+    return finalizeCapturedBookingPayment(booking.id, paymentId);
+  }
+
   const updatedBooking = await db.booking.update({
     where: { id: booking.id },
     data: {
-      razorpayOrderId,
-      razorpayPaymentId,
-      paymentAuthorizationId: razorpayPaymentId,
-      financialStatus: "PAYMENT_PROCESSING",
+      cashfreeOrderId,
+      cashfreePaymentSessionId: order.payment_session_id,
+      financialStatus: "PAYMENT_PENDING",
       lastPaymentError: null,
     },
     include: {
@@ -1296,10 +1409,9 @@ async function finalizeCapturedBookingPayment(bookingId: string, paymentId: stri
       status: "CONFIRMED",
       isPaymentCompleted: true,
       paymentProvider: BOOKING_PAYMENT_PROVIDER,
-      paymentIntentId: booking.razorpayOrderId ?? booking.paymentIntentId,
+      paymentIntentId: booking.cashfreeOrderId ?? booking.paymentIntentId,
       paymentAuthorizationId: paymentId,
-      razorpayPaymentId: paymentId,
-      razorpayTransferId: null,
+      cashfreePaymentId: paymentId,
       payoutLinkedAccountId: null,
       financialStatus: "PAYMENT_CAPTURED",
       ownerPayoutStatus: "NONE",
@@ -1345,7 +1457,7 @@ async function finalizeCapturedBookingPayment(bookingId: string, paymentId: stri
       },
       subject: `Payment confirmed for ${updatedBooking.equipment.title}`,
       title: `Your booking is confirmed`,
-      message: `We received your Razorpay payment and your booking is now confirmed.`,
+      message: `We received your Cashfree payment and your booking is now confirmed.`,
       equipmentTitle: updatedBooking.equipment.title,
       startDate: formatDateOnly(updatedBooking.startDate),
       endDate: formatDateOnly(updatedBooking.endDate),
@@ -1513,12 +1625,13 @@ export async function completeBooking(ownerId: string, bookingId: string) {
     );
   }
 
-  ensureBookingStatus(
-    booking.status,
-    ["IN_PROGRESS"],
-    "Only in-progress bookings can be completed.",
-    "INVALID_BOOKING_STATUS",
-  );
+  if (!canOwnerCompleteBookingStatus(booking.status, booking.endDate)) {
+    throw new BookingServiceError(
+      "Only in-progress bookings or confirmed bookings whose rental window has ended can be completed.",
+      409,
+      "INVALID_BOOKING_STATUS",
+    );
+  }
 
   const now = new Date();
   const updatedBooking = await db.booking.update({
@@ -1592,6 +1705,7 @@ export async function disputeBooking(
   ownerId: string,
   bookingId: string,
   input: DisputeBookingInput,
+  files: Express.Multer.File[],
 ) {
   const booking = await ensureBooking(bookingId);
 
@@ -1603,38 +1717,66 @@ export async function disputeBooking(
     );
   }
 
-  ensureBookingStatus(
-    booking.status,
-    ["CONFIRMED", "IN_PROGRESS"],
-    "Only confirmed or in-progress bookings can be disputed.",
-    "INVALID_BOOKING_STATUS",
-  );
+  if (!canOwnerDisputeBookingStatus(booking.status, booking.endDate)) {
+    throw new BookingServiceError(
+      "Only in-progress bookings or confirmed bookings whose rental window has ended can be disputed.",
+      409,
+      "INVALID_BOOKING_STATUS",
+    );
+  }
 
-  const now = new Date();
-  const updatedBooking = await db.booking.update({
-    where: { id: booking.id },
-    data: {
-      status: "DISPUTED",
-      financialStatus: "DISPUTED",
-      ownerPayoutStatus: booking.isPaymentCompleted ? "BLOCKED" : booking.ownerPayoutStatus,
-      depositRefundStatus: booking.isPaymentCompleted ? "BLOCKED" : booking.depositRefundStatus,
-      paymentDisputedAt: now,
-      disputedAt: now,
-      disputeReason: input.reason.trim(),
-    },
-    include: {
-      equipment: {
-        include: {
-          images: {
-            orderBy: { position: "asc" },
-            take: 1,
-          },
+  if (files.length > BOOKING_DISPUTE_IMAGE_LIMITS.max) {
+    throw new BookingServiceError(
+      `Please upload no more than ${BOOKING_DISPUTE_IMAGE_LIMITS.max} images.`,
+      400,
+      "DISPUTE_IMAGE_LIMIT_EXCEEDED",
+    );
+  }
+
+  const uploadedImages = await uploadBookingDisputeImages(files);
+
+  let updatedBooking;
+
+  try {
+    const now = new Date();
+    updatedBooking = await db.booking.update({
+      where: { id: booking.id },
+      data: {
+        status: "DISPUTED",
+        financialStatus: "DISPUTED",
+        ownerPayoutStatus: booking.isPaymentCompleted ? "BLOCKED" : booking.ownerPayoutStatus,
+        depositRefundStatus: booking.isPaymentCompleted ? "BLOCKED" : booking.depositRefundStatus,
+        paymentDisputedAt: now,
+        disputedAt: now,
+        disputeReason: input.reason.trim(),
+        disputeImages: {
+          create: uploadedImages.map((image) => ({
+            url: image.url,
+            publicId: image.publicId,
+            position: image.position,
+          })),
         },
       },
-      renter: true,
-      owner: true,
-    },
-  });
+      include: {
+        equipment: {
+          include: {
+            images: {
+              orderBy: { position: "asc" },
+              take: 1,
+            },
+          },
+        },
+        renter: true,
+        owner: true,
+        disputeImages: {
+          orderBy: { position: "asc" },
+        },
+      },
+    });
+  } catch (error) {
+    await cleanupUploadedImages(uploadedImages.map((image) => image.publicId));
+    throw error;
+  }
   const eventPayload = createBookingEventPayload(updatedBooking);
   await createBookingDisputedNotifications(db, {
     ...eventPayload,
@@ -1797,7 +1939,7 @@ export async function markDepositRefunded(
 
 async function storeIncomingWebhookEvent(eventId: string, eventType: string, entityId: string | null, payload: unknown) {
   try {
-    return await db.razorpayWebhookEvent.create({
+    return await db.cashfreeWebhookEvent.create({
       data: {
         eventId,
         eventType,
@@ -1817,11 +1959,16 @@ async function storeIncomingWebhookEvent(eventId: string, eventType: string, ent
   }
 }
 
-function buildRazorpayWebhookEventId(input: {
+function buildCashfreeWebhookEventId(input: {
   eventType: string;
   entityId: string | null;
-  createdAt?: number;
+  createdAt?: string;
+  idempotencyKey?: string | null;
 }) {
+  if (input.idempotencyKey) {
+    return input.idempotencyKey;
+  }
+
   if (input.entityId) {
     return `${input.eventType}:${input.entityId}:${input.createdAt ?? "unknown"}`;
   }
@@ -1832,7 +1979,7 @@ function buildRazorpayWebhookEventId(input: {
 function getWebhookSignatureHeader(signature: string | string[] | undefined) {
   if (typeof signature !== "string" || signature.trim().length === 0) {
     throw new BookingServiceError(
-      "Missing Razorpay webhook signature.",
+      "Missing Cashfree webhook signature.",
       400,
       "WEBHOOK_SIGNATURE_MISSING",
     );
@@ -1841,48 +1988,66 @@ function getWebhookSignatureHeader(signature: string | string[] | undefined) {
   return signature.trim();
 }
 
-export async function processRazorpayWebhook(
+function getWebhookTimestampHeader(timestamp: string | string[] | undefined) {
+  if (typeof timestamp !== "string" || timestamp.trim().length === 0) {
+    throw new BookingServiceError(
+      "Missing Cashfree webhook timestamp.",
+      400,
+      "WEBHOOK_TIMESTAMP_MISSING",
+    );
+  }
+
+  return timestamp.trim();
+}
+
+export async function processCashfreeWebhook(
   payload: Buffer,
   signatureHeader: string | string[] | undefined,
+  timestampHeader: string | string[] | undefined,
+  idempotencyHeader?: string | string[] | undefined,
 ) {
   const signature = getWebhookSignatureHeader(signatureHeader);
+  const timestamp = getWebhookTimestampHeader(timestampHeader);
+  const idempotencyKey =
+    typeof idempotencyHeader === "string" && idempotencyHeader.trim().length > 0
+      ? idempotencyHeader.trim()
+      : null;
 
-  if (!verifyRazorpayWebhookSignature(payload, signature)) {
+  if (!verifyCashfreeWebhookSignature(payload, signature, timestamp)) {
     throw new BookingServiceError(
-      "Invalid Razorpay webhook signature.",
+      "Invalid Cashfree webhook signature.",
       400,
       "WEBHOOK_SIGNATURE_INVALID",
     );
   }
 
   const body = JSON.parse(payload.toString("utf8")) as {
-    event?: string;
-    created_at?: number;
-    payload?: {
-      payment?: { entity?: Record<string, unknown> };
-      refund?: { entity?: Record<string, unknown> };
-      transfer?: { entity?: Record<string, unknown> };
+    type?: string;
+    event_time?: string;
+    data?: {
+      order?: Record<string, unknown>;
+      payment?: Record<string, unknown>;
+      error_details?: Record<string, unknown>;
     };
   };
 
-  const eventType = body.event?.trim();
+  const eventType = body.type?.trim();
 
   if (!eventType) {
     throw new BookingServiceError("Webhook event type is missing.", 400, "WEBHOOK_EVENT_INVALID");
   }
 
-  console.log(`[razorpay:webhook] received ${eventType}`);
+  console.log(`[cashfree:webhook] received ${eventType}`);
 
-  const entity =
-    body.payload?.payment?.entity ??
-    body.payload?.refund?.entity ??
-    body.payload?.transfer?.entity ??
-    null;
-  const entityId = typeof entity?.id === "string" ? entity.id.trim() : null;
-  const eventId = buildRazorpayWebhookEventId({
+  const paymentEntity = body.data?.payment ?? null;
+  const orderEntity = body.data?.order ?? null;
+  const entityId =
+    typeof paymentEntity?.cf_payment_id === "string" ? paymentEntity.cf_payment_id.trim() : null;
+  const eventId = buildCashfreeWebhookEventId({
     eventType,
     entityId,
-    createdAt: body.created_at,
+    createdAt: body.event_time,
+    idempotencyKey,
   });
 
   const storedEvent = await storeIncomingWebhookEvent(
@@ -1894,41 +2059,38 @@ export async function processRazorpayWebhook(
 
   if (!storedEvent) {
     console.log(
-      `[razorpay:webhook] duplicate ignored event=${eventType} entity=${entityId ?? "none"} key=${eventId}`,
+      `[cashfree:webhook] duplicate ignored event=${eventType} entity=${entityId ?? "none"} key=${eventId}`,
     );
     return { duplicated: true };
   }
 
-  if (eventType === "payment.authorized") {
-    console.log(
-      `[razorpay:webhook] authorized recorded entity=${entityId ?? "none"} waiting for captured event`,
-    );
-  }
-
-  if (eventType === "payment.captured") {
-    const paymentEntity = body.payload?.payment?.entity;
+  if (eventType === "PAYMENT_SUCCESS_WEBHOOK") {
     const orderId =
-      typeof paymentEntity?.order_id === "string" ? paymentEntity.order_id.trim() : null;
+      typeof orderEntity?.order_id === "string" ? orderEntity.order_id.trim() : null;
     const paymentId =
-      typeof paymentEntity?.id === "string" ? paymentEntity.id.trim() : null;
+      typeof paymentEntity?.cf_payment_id === "string" ? paymentEntity.cf_payment_id.trim() : null;
     const amount =
-      typeof paymentEntity?.amount === "number" ? paymentEntity.amount : null;
+      typeof paymentEntity?.payment_amount === "number"
+        ? paymentEntity.payment_amount
+        : null;
     const currency =
-      typeof paymentEntity?.currency === "string" ? paymentEntity.currency.trim() : null;
+      typeof paymentEntity?.payment_currency === "string"
+        ? paymentEntity.payment_currency.trim()
+        : null;
 
     if (!orderId || !paymentId || amount == null || !currency) {
       console.error(
-        `[razorpay:webhook] captured payload invalid entity=${entityId ?? "none"}`,
+        `[cashfree:webhook] success payload invalid entity=${entityId ?? "none"}`,
       );
       throw new BookingServiceError(
-        "The captured payment payload is incomplete.",
+        "The payment success payload is incomplete.",
         400,
         "PAYMENT_WEBHOOK_INVALID",
       );
     }
 
     const booking = await db.booking.findFirst({
-      where: { razorpayOrderId: orderId },
+      where: { cashfreeOrderId: orderId },
       include: {
         equipment: {
           include: {
@@ -1945,21 +2107,21 @@ export async function processRazorpayWebhook(
 
     if (!booking) {
       console.error(
-        `[razorpay:webhook] booking not found for captured payment order=${orderId} payment=${paymentId}`,
+        `[cashfree:webhook] booking not found for payment order=${orderId} payment=${paymentId}`,
       );
       throw new BookingServiceError("Booking not found for captured payment.", 404, "BOOKING_NOT_FOUND");
     }
 
     console.log(
-      `[razorpay:webhook] captured matched booking=${booking.id} order=${orderId} payment=${paymentId}`,
+      `[cashfree:webhook] success matched booking=${booking.id} order=${orderId} payment=${paymentId}`,
     );
 
     if (
-      booking.paymentAmountInPaise !== amount ||
+      booking.paymentAmountInPaise !== toPaise(amount) ||
       (booking.paymentCurrency ?? booking.currency) !== currency
     ) {
       console.error(
-        `[razorpay:webhook] amount mismatch booking=${booking.id} expected=${booking.paymentAmountInPaise}:${booking.paymentCurrency ?? booking.currency} received=${amount}:${currency}`,
+        `[cashfree:webhook] amount mismatch booking=${booking.id} expected=${booking.paymentAmountInPaise}:${booking.paymentCurrency ?? booking.currency} received=${amount}:${currency}`,
       );
       throw new BookingServiceError(
         "Captured payment does not match the expected booking amount.",
@@ -1970,23 +2132,23 @@ export async function processRazorpayWebhook(
 
     await finalizeCapturedBookingPayment(booking.id, paymentId);
     console.log(
-      `[razorpay:webhook] captured processed booking=${booking.id} payment=${paymentId} status=CONFIRMED`,
+      `[cashfree:webhook] success processed booking=${booking.id} payment=${paymentId} status=CONFIRMED`,
     );
   }
 
-  if (eventType === "payment.failed") {
-    const paymentEntity = body.payload?.payment?.entity;
+  if (eventType === "PAYMENT_FAILED_WEBHOOK") {
     const orderId =
-      typeof paymentEntity?.order_id === "string" ? paymentEntity.order_id.trim() : null;
+      typeof orderEntity?.order_id === "string" ? orderEntity.order_id.trim() : null;
+    const errorEntity = body.data?.error_details ?? null;
     const errorDescription =
-      typeof paymentEntity?.error_description === "string"
-        ? paymentEntity.error_description.trim()
-        : "Payment failed in Razorpay.";
+      typeof errorEntity?.error_description === "string"
+        ? errorEntity.error_description.trim()
+        : "Payment failed in Cashfree.";
 
     if (orderId) {
       await db.booking.updateMany({
         where: {
-          razorpayOrderId: orderId,
+          cashfreeOrderId: orderId,
           status: "PENDING_RENTER_PAYMENT",
         },
         data: {
@@ -1996,12 +2158,12 @@ export async function processRazorpayWebhook(
         },
       });
       console.log(
-        `[razorpay:webhook] payment failed recorded order=${orderId} reason=${errorDescription}`,
+        `[cashfree:webhook] payment failed recorded order=${orderId} reason=${errorDescription}`,
       );
     }
   }
 
-  await db.razorpayWebhookEvent.update({
+  await db.cashfreeWebhookEvent.update({
     where: { eventId: storedEvent.eventId },
     data: {
       processedAt: new Date(),

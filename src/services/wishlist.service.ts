@@ -13,6 +13,7 @@ type EquipmentRow = {
   ownerPhoneVerified: boolean;
   ownerCreatedAt: Date;
   title: string;
+  description: string | null;
   categoryId: string;
   price: number;
   deliveryRadius: number;
@@ -69,6 +70,7 @@ function mapRowToSafeEquipment(
       createdAt: row.ownerCreatedAt,
     },
     title: row.title,
+    description: row.description,
     category: {
       id: row.categoryId,
       title: row.categoryTitle,
@@ -141,6 +143,7 @@ async function queryActiveEquipmentById(equipmentId: string) {
       u."phoneVerified" AS "ownerPhoneVerified",
       u."createdAt" AS "ownerCreatedAt",
       e."title",
+      e."description",
       e."categoryId",
       e."price",
       e."deliveryRadius",
@@ -181,6 +184,7 @@ async function queryWishlistEquipmentByUser(userId: string) {
       u."phoneVerified" AS "ownerPhoneVerified",
       u."createdAt" AS "ownerCreatedAt",
       e."title",
+      e."description",
       e."categoryId",
       e."price",
       e."deliveryRadius",

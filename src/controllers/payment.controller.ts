@@ -1,8 +1,8 @@
 import type { Request, Response } from "express";
 import {
   BookingServiceError,
-  getAdminRazorpayWebhookEvents,
-  processRazorpayWebhook,
+  getAdminCashfreeWebhookEvents,
+  processCashfreeWebhook,
 } from "../services/booking.service";
 
 function sendError(res: Response, status: number, message: string, errors?: unknown) {
@@ -13,13 +13,18 @@ function sendError(res: Response, status: number, message: string, errors?: unkn
   });
 }
 
-export async function razorpayWebhookController(req: Request, res: Response) {
+export async function cashfreeWebhookController(req: Request, res: Response) {
   try {
     const payload = Buffer.isBuffer(req.body)
       ? req.body
       : Buffer.from(JSON.stringify(req.body ?? {}));
 
-    await processRazorpayWebhook(payload, req.headers["x-razorpay-signature"]);
+    await processCashfreeWebhook(
+      payload,
+      req.headers["x-webhook-signature"],
+      req.headers["x-webhook-timestamp"],
+      req.headers["x-idempotency-header"],
+    );
 
     return res.status(200).json({
       success: true,
@@ -31,12 +36,12 @@ export async function razorpayWebhookController(req: Request, res: Response) {
       return sendError(res, error.statusCode, error.message, { code: error.code });
     }
 
-    console.error("Razorpay webhook error:", error);
+    console.error("Cashfree webhook error:", error);
     return sendError(res, 500, "Something went wrong.");
   }
 }
 
-export async function getAdminRazorpayWebhookEventsController(req: Request, res: Response) {
+export async function getAdminCashfreeWebhookEventsController(req: Request, res: Response) {
   try {
     const adminId = req.user?.userId ?? null;
 
@@ -44,7 +49,7 @@ export async function getAdminRazorpayWebhookEventsController(req: Request, res:
       return sendError(res, 401, "Unauthorized.");
     }
 
-    const events = await getAdminRazorpayWebhookEvents(adminId);
+    const events = await getAdminCashfreeWebhookEvents(adminId);
 
     return res.status(200).json({
       success: true,

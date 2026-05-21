@@ -11,7 +11,7 @@ Rentmart's server is built with Bun, Express, TypeScript, Prisma, PostgreSQL, Re
 - `services` hold marketplace business logic
 - `validators` enforce input contracts with Zod
 - `middlewares` protect routes, validate access, and limit abuse
-- `lib` contains infrastructure integrations such as Prisma, Redis, Razorpay, Cloudinary, Twilio, Nodemailer, and Mapbox
+- `lib` contains infrastructure integrations such as Prisma, Redis, Cashfree, Cloudinary, Twilio, Nodemailer, and Mapbox
 
 ## Core Responsibilities
 
@@ -20,7 +20,7 @@ Rentmart's server is built with Bun, Express, TypeScript, Prisma, PostgreSQL, Re
 | Identity and access | Handles sign-up, sign-in, OTP verification, password updates, profile updates, role-aware auth, and verification gating | `auth.routes.ts`, `auth.service.ts`, `auth.middleware.ts` |
 | Marketplace catalog | Manages equipment categories, listing creation, listing images, moderation, and public marketplace browsing | `category.*`, `equipment.*`, `image-upload.middleware.ts` |
 | Booking lifecycle | Supports request submission, owner approval, renter payment flow, rental state changes, and dispute markers | `booking.*` |
-| Payments and reconciliation | Accepts Razorpay webhooks, stores raw event payloads, maps payment data back to bookings, and exposes admin event visibility | `payment.routes.ts`, `payment.controller.ts`, `booking.service.ts` |
+| Payments and reconciliation | Accepts Cashfree webhooks, stores raw event payloads, maps payment data back to bookings, and exposes admin event visibility | `payment.routes.ts`, `payment.controller.ts`, `booking.service.ts` |
 | Notifications | Creates user-facing events around approvals, bookings, verification, and account changes | `notification.*` |
 | Support operations | Accepts owner/renter contact queries and exposes them to the admin queue | `support-query.*` |
 | Wishlist | Stores renter saved equipment for later review | `wishlist.*` |
@@ -38,7 +38,7 @@ Rentmart's server is built with Bun, Express, TypeScript, Prisma, PostgreSQL, Re
 | Auth | JWT + cookies | Supports authenticated sessions and role-aware route protection |
 | Password hashing | `bcryptjs` | Secure password storage |
 | Rate limiting | Redis | Tracks request windows and protects sensitive flows from abuse |
-| Payments | Razorpay | Booking payment capture and webhook-driven reconciliation |
+| Payments | Cashfree | Booking payment capture and webhook-driven reconciliation |
 | Uploads | Multer + Cloudinary helpers | Listing/category image intake and storage pipeline |
 | Email | Nodemailer | OTP and transactional email delivery |
 | SMS / phone | Twilio | Mobile verification and phone-related workflows |
@@ -66,7 +66,7 @@ Rentmart's server is built with Bun, Express, TypeScript, Prisma, PostgreSQL, Re
 | `Equipment` | Published or moderated machine listing | Belongs to owner and category; connects to images, bookings, notifications |
 | `EquipmentImage` | Ordered listing imagery | Belongs to one equipment item |
 | `Booking` | Rental lifecycle plus finance state | Links renter, owner, equipment, and payment references |
-| `RazorpayWebhookEvent` | Raw payment event archive | Stores payload JSON for reconciliation/debugging |
+| `CashfreeWebhookEvent` | Raw payment event archive | Stores payload JSON for reconciliation/debugging |
 | `Notification` | User-facing event feed | Belongs to a user, optionally an equipment item |
 | `SupportQuery` | Contact/support submissions | Belongs to a user and captures topic + message |
 | `WishlistItem` | Saved marketplace equipment | Links renter and equipment |
@@ -80,7 +80,7 @@ Rentmart's server is built with Bun, Express, TypeScript, Prisma, PostgreSQL, Re
 | `/categories` | Category browsing and admin category management |
 | `/equipment` | Public listings, owner listings, moderation, uploads |
 | `/notifications` | Notification feed and read-state updates |
-| `/payments` | Razorpay webhook ingestion and admin raw event retrieval |
+| `/payments` | Cashfree webhook ingestion and admin raw event retrieval |
 | `/support-queries` | Contact form submission and admin review queue |
 | `/wishlists` | Renter save/remove wishlist flows |
 
@@ -111,7 +111,7 @@ Rentmart's server is built with Bun, Express, TypeScript, Prisma, PostgreSQL, Re
 | Booking request | Renter submits rental request against a listing |
 | Owner decision | Owner approves or rejects within the configured window |
 | Payment required | Booking moves into renter payment state |
-| Payment webhook | Razorpay webhook enters `/payments/razorpay/webhook` with raw body support |
+| Payment webhook | Cashfree webhook enters `/payments/cashfree/webhook` with raw body support |
 | Financial reconciliation | Booking stores payment IDs, payout states, refund states, and finance timestamps |
 | Admin ops | Admin can view ledger data and raw payment events for reconciliation |
 
@@ -133,7 +133,7 @@ Rentmart's server is built with Bun, Express, TypeScript, Prisma, PostgreSQL, Re
 | Role isolation | `requireRole()` restricts admin-only and role-specific endpoints |
 | Verification gating | Email/mobile middleware blocks sensitive actions until verification completes |
 | Abuse protection | Redis-backed rate limiter adds `429` enforcement and retry metadata |
-| Webhook compatibility | Razorpay webhook route uses `express.raw()` so signature-sensitive payloads are preserved |
+| Webhook compatibility | Cashfree webhook route uses `express.raw()` so signature-sensitive payloads are preserved |
 | Password safety | Passwords are stored as hashes, not plain text |
 
 ## Environment Groups
@@ -149,7 +149,7 @@ The server uses several environment groups. Exact variable names live in `src/co
 | Twilio | SMS credentials for phone verification |
 | Cloudinary | Image upload account and signing details |
 | Mapbox | Geocoding/search token |
-| Razorpay | Payment API keys and webhook secret |
+| Cashfree | Payment app id, secret key, environment, and webhook signature headers |
 
 ## Folder Structure
 

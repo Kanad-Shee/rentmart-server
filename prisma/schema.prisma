@@ -107,7 +107,6 @@ model User {
   phone          String?
   address        String
   role           UserRole
-  razorpayLinkedAccountId String? @unique
   passwordHash   String
   emailVerified  Boolean          @default(false)
   phoneVerified  Boolean          @default(false)
@@ -121,11 +120,11 @@ model User {
   renterBookings     Booking[]      @relation("BookingRenter")
   ownerBookings      Booking[]      @relation("BookingOwner")
   supportQueries     SupportQuery[]
+  equipmentReviews   EquipmentReview[]
 
   @@index([role])
   @@index([emailVerified])
   @@index([phoneVerified])
-  @@index([razorpayLinkedAccountId])
 }
 
 model OtpVerification {
@@ -165,6 +164,7 @@ model Equipment {
   id                String            @id @default(cuid())
   ownerId           String
   title             String
+  description       String?
   categoryId        String
   price             Float
   deliveryRadius    Int
@@ -185,6 +185,7 @@ model Equipment {
   notifications     Notification[]
   wishlistItems     WishlistItem[]
   bookings          Booking[]
+  reviews           EquipmentReview[]
 
   @@index([ownerId])
   @@index([status])
@@ -258,10 +259,9 @@ model Booking {
   paymentIntentId      String?
   paymentAuthorizationId String?
   paymentIdempotencyKey String?
-  razorpayOrderId      String?
-  razorpayPaymentId    String?
-  razorpayTransferId   String?
-  razorpayRefundId     String?
+  cashfreeOrderId      String?
+  cashfreePaymentId    String?
+  cashfreePaymentSessionId String?
   payoutLinkedAccountId String?
   paymentAmountInPaise Int?
   paymentCurrency      String?
@@ -293,6 +293,7 @@ model Booking {
   equipment            Equipment     @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
   renter               User          @relation("BookingRenter", fields: [renterId], references: [id], onDelete: Cascade)
   owner                User          @relation("BookingOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  disputeImages        BookingDisputeImage[]
 
   @@index([equipmentId])
   @@index([renterId, createdAt])
@@ -302,13 +303,56 @@ model Booking {
   @@index([financialStatus, createdAt])
   @@index([ownerPayoutStatus, createdAt])
   @@index([depositRefundStatus, createdAt])
-  @@index([razorpayOrderId])
-  @@index([razorpayPaymentId])
-  @@index([razorpayTransferId])
-  @@index([razorpayRefundId])
+  @@index([cashfreeOrderId])
+  @@index([cashfreePaymentId])
+  @@index([cashfreePaymentSessionId])
 }
 
-model RazorpayWebhookEvent {
+model BookingDisputeImage {
+  id        String   @id @default(cuid())
+  bookingId String
+  url       String
+  publicId  String
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId, position])
+}
+
+model EquipmentReview {
+  id          String                @id @default(cuid())
+  equipmentId String
+  renterId    String
+  rating      Int
+  title       String
+  description String
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  equipment   Equipment             @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  renter      User                  @relation(fields: [renterId], references: [id], onDelete: Cascade)
+  images      EquipmentReviewImage[]
+
+  @@unique([equipmentId, renterId])
+  @@index([equipmentId, createdAt])
+  @@index([renterId, createdAt])
+}
+
+model EquipmentReviewImage {
+  id        String          @id @default(cuid())
+  reviewId  String
+  url       String
+  publicId  String
+  position  Int             @default(0)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  review    EquipmentReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  @@index([reviewId, position])
+}
+
+model CashfreeWebhookEvent {
   id          String   @id @default(cuid())
   eventId     String   @unique
   eventType   String

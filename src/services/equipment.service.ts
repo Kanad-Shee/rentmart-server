@@ -1,7 +1,7 @@
-import { Prisma } from "../generated/prisma/client";
+import { Prisma, UserRole } from "../generated/prisma/client";
 import { EQUIPMENT_IMAGE_LIMITS, type EquipmentStatusValue } from "../configs/equipment.config";
 import { db } from "../lib/db";
-import { deleteCloudinaryImage, uploadEquipmentImage } from "../lib/cloudinary";
+import { deleteCloudinaryImage, uploadEquipmentImage, uploadReviewImage } from "../lib/cloudinary";
 import {
   autocompleteEquipmentAddresses,
   geocodeEquipmentAddress,
@@ -11,11 +11,13 @@ import {
   createEquipmentApprovedNotification,
   createEquipmentRejectedNotification,
 } from "./notification.service";
-import type { SafeEquipment } from "../types/equipment";
+import type { EquipmentReviewSummary, EquipmentReviewViewerState, SafeEquipment } from "../types/equipment";
 import type {
   CreateEquipmentInput,
   CreateDraftEquipmentInput,
+  CreateEquipmentReviewInput,
   RejectEquipmentInput,
+  UpdateEquipmentReviewInput,
   UpdateOwnerEquipmentInput,
 } from "../validators/equipment.schema";
 
@@ -39,6 +41,7 @@ type EquipmentRow = {
   ownerPhoneVerified: boolean;
   ownerCreatedAt: Date;
   title: string;
+  description: string | null;
   categoryId: string;
   price: number;
   deliveryRadius: number;
@@ -115,6 +118,7 @@ function mapRowToPublicEquipment(
       createdAt: row.ownerCreatedAt,
     },
     title: row.title,
+    description: row.description,
     category: {
       id: row.categoryId,
       title: row.categoryTitle,
@@ -167,6 +171,203 @@ function groupImagesByEquipmentId(imageRows: EquipmentImageRow[]) {
     },
     {},
   );
+}
+
+function mapEquipmentReview(review: {
+  id: string;
+  rating: number;
+  title: string;
+  description: string;
+  createdAt: Date;
+  updatedAt: Date;
+  renter: {
+    id: string;
+    fullName: string;
+  };
+  images: Array<{
+    id: string;
+    url: string;
+    position: number;
+  }>;
+}): EquipmentReviewSummary {
+  return {
+    id: review.id,
+    rating: review.rating,
+    title: review.title,
+    description: review.description,
+    createdAt: review.createdAt,
+    updatedAt: review.updatedAt,
+    renter: review.renter,
+    images: [...review.images].sort((left, right) => left.position - right.position),
+  };
+}
+
+async function queryEquipmentReviews(equipmentId: string) {
+  const reviews = await db.equipmentReview.findMany({
+    where: { equipmentId },
+    orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+    include: {
+      renter: {
+        select: {
+          id: true,
+          fullName: true,
+        },
+      },
+      images: {
+        orderBy: {
+          position: "asc",
+        },
+        select: {
+          id: true,
+          url: true,
+          position: true,
+        },
+      },
+    },
+  });
+
+  return reviews.map(mapEquipmentReview);
+}
+
+async function buildEquipmentReviewViewerState(
+  equipmentId: string,
+  renterId?: string,
+): Promise<EquipmentReviewViewerState> {
+  if (!renterId) {
+    return {
+      isLoggedIn: false,
+      canReview: false,
+      code: "NOT_AUTHENTICATED",
+      message: "Sign in as a renter to write a review after completing a booking.",
+      review: null,
+    };
+  }
+
+  const renter = await db.user.findUnique({
+    where: { id: renterId },
+    select: {
+      id: true,
+      role: true,
+    },
+  });
+
+  if (!renter || renter.role !== UserRole.RENTER) {
+    return {
+      isLoggedIn: true,
+      canReview: false,
+      code: "ROLE_NOT_ALLOWED",
+      message: "Only renter accounts can review equipment listings.",
+      review: null,
+    };
+  }
+
+  const existingReview = await db.equipmentReview.findUnique({
+    where: {
+      equipmentId_renterId: {
+        equipmentId,
+        renterId,
+      },
+    },
+    include: {
+      renter: {
+        select: {
+          id: true,
+          fullName: true,
+        },
+      },
+      images: {
+        orderBy: {
+          position: "asc",
+        },
+        select: {
+          id: true,
+          url: true,
+          position: true,
+        },
+      },
+    },
+  });
+
+  const completedBooking = await db.booking.findFirst({
+    where: {
+      equipmentId,
+      renterId,
+      status: "COMPLETED",
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (!completedBooking) {
+    return {
+      isLoggedIn: true,
+      canReview: false,
+      code: "BOOKING_NOT_COMPLETED",
+      message: "Reviews unlock after you complete a booking for this machine.",
+      review: existingReview ? mapEquipmentReview(existingReview) : null,
+    };
+  }
+
+  if (existingReview) {
+    return {
+      isLoggedIn: true,
+      canReview: true,
+      code: "CAN_UPDATE",
+      message: "You can update your existing review for this machine.",
+      review: mapEquipmentReview(existingReview),
+    };
+  }
+
+  return {
+    isLoggedIn: true,
+    canReview: true,
+    code: "CAN_CREATE",
+    message: "Share your experience with this machine.",
+    review: null,
+  };
+}
+
+async function attachReviewDetails(
+  equipment: SafeEquipment,
+  renterId?: string,
+): Promise<SafeEquipment> {
+  const reviews = await queryEquipmentReviews(equipment.id);
+  const reviewCount = reviews.length;
+  const averageRating =
+    reviewCount > 0
+      ? Math.round(
+          (reviews.reduce((sum, review) => sum + review.rating, 0) / reviewCount) * 10,
+        ) / 10
+      : null;
+
+  return {
+    ...equipment,
+    averageRating,
+    reviewCount,
+    reviews,
+    viewerReviewState: await buildEquipmentReviewViewerState(equipment.id, renterId),
+  };
+}
+
+async function uploadReviewImages(files: Express.Multer.File[]) {
+  const uploadedImages: Array<{
+    publicId: string;
+    url: string;
+    position: number;
+  }> = [];
+
+  for (const [index, file] of files.entries()) {
+    const result = await uploadReviewImage(file);
+
+    uploadedImages.push({
+      publicId: result.publicId,
+      url: result.secureUrl,
+      position: index,
+    });
+  }
+
+  return uploadedImages;
 }
 
 async function queryCategoriesByIds(categoryIds: string[]) {
@@ -222,6 +423,7 @@ async function queryEquipmentByIds(equipmentIds: string[]) {
       u."phoneVerified" AS "ownerPhoneVerified",
       u."createdAt" AS "ownerCreatedAt",
       e."title",
+      e."description",
       e."categoryId",
       e."price",
       e."deliveryRadius",
@@ -293,6 +495,7 @@ async function queryEquipmentByOwner(ownerId: string) {
       u."phoneVerified" AS "ownerPhoneVerified",
       u."createdAt" AS "ownerCreatedAt",
       e."title",
+      e."description",
       e."categoryId",
       e."price",
       e."deliveryRadius",
@@ -330,6 +533,7 @@ async function queryEquipmentByStatus(status: EquipmentStatusValue) {
       u."phoneVerified" AS "ownerPhoneVerified",
       u."createdAt" AS "ownerCreatedAt",
       e."title",
+      e."description",
       e."categoryId",
       e."price",
       e."deliveryRadius",
@@ -367,6 +571,7 @@ async function queryPublicEquipmentByCategory(categoryId?: string) {
       u."phoneVerified" AS "ownerPhoneVerified",
       u."createdAt" AS "ownerCreatedAt",
       e."title",
+      e."description",
       e."categoryId",
       e."price",
       e."deliveryRadius",
@@ -563,6 +768,7 @@ export async function createEquipmentListing(
         data: {
           ownerId,
           title: input.title.trim(),
+          description: input.description ?? null,
           categoryId: input.categoryId,
           price: input.price,
           deliveryRadius: input.deliveryRadius,
@@ -664,6 +870,7 @@ export async function createDraftEquipmentListing(
         data: {
           ownerId,
           title: input.title.trim(),
+          description: input.description ?? null,
           categoryId: input.categoryId,
           price: input.price,
           deliveryRadius: input.deliveryRadius,
@@ -760,6 +967,7 @@ export async function getFeaturedEquipmentListings(limit = 4, renterId?: string)
       u."phoneVerified" AS "ownerPhoneVerified",
       u."createdAt" AS "ownerCreatedAt",
       e."title",
+      e."description",
       e."categoryId",
       e."price",
       e."deliveryRadius",
@@ -831,7 +1039,246 @@ export async function getPublicEquipmentListingById(equipmentId: string, renterI
 
   const imageRows = await queryEquipmentImagesByIds([equipmentId]);
   const wishlistedIds = await getWishlistedEquipmentIdSet(renterId, [equipmentId]);
-  return mapRowToPublicEquipment(equipment, imageRows, wishlistedIds.has(equipmentId));
+  const listing = mapRowToPublicEquipment(equipment, imageRows, wishlistedIds.has(equipmentId));
+  return attachReviewDetails(listing, renterId);
+}
+
+export async function getEquipmentReviewDetails(equipmentId: string, renterId?: string) {
+  const equipment = await queryEquipmentById(equipmentId);
+
+  if (!equipment || equipment.status !== "ACTIVE") {
+    throw new EquipmentServiceError(
+      "Equipment listing not found.",
+      404,
+      "EQUIPMENT_NOT_FOUND",
+    );
+  }
+
+  const viewerReviewState = await buildEquipmentReviewViewerState(equipmentId, renterId);
+  const reviews = await queryEquipmentReviews(equipmentId);
+  const reviewCount = reviews.length;
+  const averageRating =
+    reviewCount > 0
+      ? Math.round(
+          (reviews.reduce((sum, review) => sum + review.rating, 0) / reviewCount) * 10,
+        ) / 10
+      : null;
+
+  return {
+    equipmentId,
+    averageRating,
+    reviewCount,
+    reviews,
+    viewerReviewState,
+  };
+}
+
+async function ensureReviewEligibility(equipmentId: string, renterId: string) {
+  const equipment = await queryEquipmentById(equipmentId);
+
+  if (!equipment || equipment.status !== "ACTIVE") {
+    throw new EquipmentServiceError(
+      "Equipment listing not found.",
+      404,
+      "EQUIPMENT_NOT_FOUND",
+    );
+  }
+
+  const renter = await db.user.findUnique({
+    where: { id: renterId },
+    select: {
+      id: true,
+      role: true,
+    },
+  });
+
+  if (!renter || renter.role !== UserRole.RENTER) {
+    throw new EquipmentServiceError(
+      "Only renters can review equipment listings.",
+      403,
+      "ROLE_NOT_ALLOWED",
+    );
+  }
+
+  const completedBooking = await db.booking.findFirst({
+    where: {
+      equipmentId,
+      renterId,
+      status: "COMPLETED",
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (!completedBooking) {
+    throw new EquipmentServiceError(
+      "You can review this machine only after completing a booking for it.",
+      403,
+      "BOOKING_NOT_COMPLETED",
+    );
+  }
+
+  return equipment;
+}
+
+export async function createEquipmentReview(
+  renterId: string,
+  equipmentId: string,
+  input: CreateEquipmentReviewInput,
+  files: Express.Multer.File[],
+) {
+  await ensureReviewEligibility(equipmentId, renterId);
+
+  const existingReview = await db.equipmentReview.findUnique({
+    where: {
+      equipmentId_renterId: {
+        equipmentId,
+        renterId,
+      },
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (existingReview) {
+    throw new EquipmentServiceError(
+      "You already reviewed this machine. Please update your existing review instead.",
+      409,
+      "REVIEW_ALREADY_EXISTS",
+    );
+  }
+
+  const uploadedImages = await uploadReviewImages(files);
+
+  try {
+    await db.equipmentReview.create({
+      data: {
+        equipmentId,
+        renterId,
+        rating: input.rating,
+        title: input.title.trim(),
+        description: input.description.trim(),
+        images: {
+          create: uploadedImages.map((image) => ({
+            url: image.url,
+            publicId: image.publicId,
+            position: image.position,
+          })),
+        },
+      },
+    });
+  } catch (error) {
+    await cleanupUploadedImages(uploadedImages.map((image) => image.publicId));
+    throw error;
+  }
+
+  return getEquipmentReviewDetails(equipmentId, renterId);
+}
+
+export async function updateEquipmentReview(
+  renterId: string,
+  equipmentId: string,
+  input: UpdateEquipmentReviewInput,
+  files: Express.Multer.File[],
+) {
+  await ensureReviewEligibility(equipmentId, renterId);
+
+  const existingReview = await db.equipmentReview.findUnique({
+    where: {
+      equipmentId_renterId: {
+        equipmentId,
+        renterId,
+      },
+    },
+    include: {
+      images: {
+        orderBy: {
+          position: "asc",
+        },
+      },
+    },
+  });
+
+  if (!existingReview) {
+    throw new EquipmentServiceError(
+      "You have not reviewed this machine yet.",
+      404,
+      "REVIEW_NOT_FOUND",
+    );
+  }
+
+  const retainedImages = existingReview.images.filter((image) =>
+    input.retainedPhotoIds.includes(image.id),
+  );
+  const removedImages = existingReview.images.filter(
+    (image) => !input.retainedPhotoIds.includes(image.id),
+  );
+  const uploadedImages = await uploadReviewImages(files);
+
+  if (retainedImages.length + uploadedImages.length > 5) {
+    await cleanupUploadedImages(uploadedImages.map((image) => image.publicId));
+    throw new EquipmentServiceError(
+      "Please upload no more than 5 images.",
+      400,
+      "REVIEW_IMAGE_LIMIT_EXCEEDED",
+    );
+  }
+
+  try {
+    await db.$transaction(async (tx) => {
+      await tx.equipmentReview.update({
+        where: { id: existingReview.id },
+        data: {
+          rating: input.rating,
+          title: input.title.trim(),
+          description: input.description.trim(),
+        },
+      });
+
+      if (removedImages.length > 0) {
+        await tx.equipmentReviewImage.deleteMany({
+          where: {
+            id: {
+              in: removedImages.map((image) => image.id),
+            },
+          },
+        });
+      }
+
+      if (retainedImages.length > 0) {
+        await Promise.all(
+          retainedImages.map((image, index) =>
+            tx.equipmentReviewImage.update({
+              where: { id: image.id },
+              data: { position: index },
+            }),
+          ),
+        );
+      }
+
+      if (uploadedImages.length > 0) {
+        await tx.equipmentReviewImage.createMany({
+          data: uploadedImages.map((image, index) => ({
+            reviewId: existingReview.id,
+            url: image.url,
+            publicId: image.publicId,
+            position: retainedImages.length + index,
+          })),
+        });
+      }
+    });
+  } catch (error) {
+    await cleanupUploadedImages(uploadedImages.map((image) => image.publicId));
+    throw error;
+  }
+
+  if (removedImages.length > 0) {
+    await cleanupUploadedImages(removedImages.map((image) => image.publicId));
+  }
+
+  return getEquipmentReviewDetails(equipmentId, renterId);
 }
 
 async function ensureOwnedEquipment(ownerId: string, equipmentId: string) {
@@ -925,6 +1372,7 @@ export async function updateOwnerEquipmentListing(
         where: { id: equipment.row.id },
         data: {
           title: input.title.trim(),
+          description: input.description ?? null,
           categoryId: input.categoryId,
           price: input.price,
           deliveryRadius: input.deliveryRadius,

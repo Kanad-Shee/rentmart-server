@@ -2,12 +2,13 @@ import { Router } from "express";
 import { UserRole } from "../generated/prisma/client";
 import { attachOptionalUser, authenticateUser, requireRole, requireVerifiedMobile } from "../middlewares/auth.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
-import { uploadEquipmentImages, uploadOptionalEquipmentImages } from "../middlewares/image-upload.middleware";
+import { uploadEquipmentImages, uploadOptionalEquipmentImages, uploadOptionalReviewImages } from "../middlewares/image-upload.middleware";
 import {
   addressSuggestionsController,
   approveEquipmentController,
   createDraftEquipmentController,
   createEquipmentController,
+  createEquipmentReviewController,
   deleteEquipmentController,
   geocodeEquipmentController,
   geocodeEquipmentPlaceIdController,
@@ -16,17 +17,22 @@ import {
   getPendingEquipmentController,
   getPublicEquipmentController,
   getPublicEquipmentByIdController,
+  getEquipmentReviewsController,
   rejectEquipmentController,
   submitOwnerEquipmentController,
+  updateEquipmentReviewController,
   updateOwnerEquipmentController,
 } from "../controllers/equipment.controller";
 import {
   addressSuggestionsSchema,
   createEquipmentSchema,
   createDraftEquipmentSchema,
+  createEquipmentReviewSchema,
+  equipmentIdSchema,
   geocodeEquipmentSchema,
   placeIdSchema,
   rejectEquipmentSchema,
+  updateEquipmentReviewSchema,
   updateOwnerEquipmentSchema,
 } from "../validators/equipment.schema";
 
@@ -143,6 +149,31 @@ equipmentRouter.patch(
   requireRole(UserRole.ADMIN),
   validateRequest(rejectEquipmentSchema),
   rejectEquipmentController
+);
+
+equipmentRouter.get(
+  "/:id/reviews",
+  attachOptionalUser,
+  validateRequest(equipmentIdSchema, "params"),
+  getEquipmentReviewsController
+);
+
+equipmentRouter.post(
+  "/:id/reviews",
+  authenticateUser,
+  uploadOptionalReviewImages,
+  validateRequest(equipmentIdSchema, "params"),
+  validateRequest(createEquipmentReviewSchema),
+  createEquipmentReviewController
+);
+
+equipmentRouter.patch(
+  "/:id/reviews/me",
+  authenticateUser,
+  uploadOptionalReviewImages,
+  validateRequest(equipmentIdSchema, "params"),
+  validateRequest(updateEquipmentReviewSchema),
+  updateEquipmentReviewController
 );
 
 equipmentRouter.get(

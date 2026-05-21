@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
-import { EQUIPMENT_CLOUDINARY_FOLDER } from "../configs/equipment.config";
+import { EQUIPMENT_CLOUDINARY_FOLDER, REVIEW_CLOUDINARY_FOLDER } from "../configs/equipment.config";
 import { CATEGORY_CLOUDINARY_FOLDER } from "../configs/category.config";
+import { BOOKING_DISPUTE_CLOUDINARY_FOLDER } from "../configs/booking.config";
 
 export type CloudinaryUploadResult = {
   publicId: string;
@@ -112,6 +113,14 @@ async function uploadCloudinaryImage(
 
 export async function uploadEquipmentImage(file: CloudinaryUploadFile) {
   return uploadCloudinaryImage(file, EQUIPMENT_CLOUDINARY_FOLDER);
+}
+
+export async function uploadReviewImage(file: CloudinaryUploadFile) {
+  return uploadCloudinaryImage(file, REVIEW_CLOUDINARY_FOLDER);
+}
+
+export async function uploadBookingDisputeImage(file: CloudinaryUploadFile) {
+  return uploadCloudinaryImage(file, BOOKING_DISPUTE_CLOUDINARY_FOLDER);
 }
 
 export async function uploadCategoryImage(file: CloudinaryUploadFile) {

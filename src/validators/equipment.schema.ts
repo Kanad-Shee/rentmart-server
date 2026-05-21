@@ -23,6 +23,17 @@ export const placeIdSchema = z.object({
     .min(1, "Place id is required."),
 });
 
+const equipmentDescriptionSchema = z
+  .union([z.string(), z.undefined()])
+  .transform((value) => {
+    const normalizedValue = value?.trim() ?? "";
+    return normalizedValue.length > 0 ? normalizedValue : undefined;
+  })
+  .refine(
+    (value) => value === undefined || value.length <= 2000,
+    "Description must be 2000 characters or less.",
+  );
+
 export const createEquipmentSchema = z.object({
   title: z
     .string({ message: "Title is required." })
@@ -43,6 +54,7 @@ export const createEquipmentSchema = z.object({
     .trim()
     .min(5, "Enter a valid address.")
     .max(200, "Address is too long."),
+  description: equipmentDescriptionSchema,
 });
 
 export const createDraftEquipmentSchema = createEquipmentSchema;
@@ -77,6 +89,42 @@ export const equipmentIdSchema = z.object({
   id: z.string({ message: "Equipment id is required." }).trim().min(1, "Equipment id is required."),
 });
 
+const reviewTitleSchema = z
+  .string({ message: "Review title is required." })
+  .trim()
+  .min(2, "Enter a review title.")
+  .max(120, "Review title is too long.");
+
+const reviewDescriptionSchema = z
+  .string({ message: "Review description is required." })
+  .trim()
+  .min(10, "Enter at least 10 characters.")
+  .max(2000, "Review description must be 2000 characters or less.");
+
+export const createEquipmentReviewSchema = z.object({
+  rating: z.coerce
+    .number({ message: "Rating is required." })
+    .int("Rating must be a whole number.")
+    .min(1, "Rating must be at least 1.")
+    .max(5, "Rating cannot be more than 5."),
+  title: reviewTitleSchema,
+  description: reviewDescriptionSchema,
+});
+
+export const updateEquipmentReviewSchema = createEquipmentReviewSchema.extend({
+  retainedPhotoIds: z
+    .union([z.string(), z.array(z.string()), z.undefined()])
+    .transform((value) => {
+      if (value === undefined) {
+        return [] as string[];
+      }
+
+      return (Array.isArray(value) ? value : [value])
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0);
+    }),
+});
+
 export type GeocodeEquipmentInput = z.infer<typeof geocodeEquipmentSchema>;
 export type AddressSuggestionsInput = z.infer<typeof addressSuggestionsSchema>;
 export type PlaceIdInput = z.infer<typeof placeIdSchema>;
@@ -84,3 +132,5 @@ export type CreateEquipmentInput = z.infer<typeof createEquipmentSchema>;
 export type CreateDraftEquipmentInput = z.infer<typeof createDraftEquipmentSchema>;
 export type UpdateOwnerEquipmentInput = z.infer<typeof updateOwnerEquipmentSchema>;
 export type RejectEquipmentInput = z.infer<typeof rejectEquipmentSchema>;
+export type CreateEquipmentReviewInput = z.infer<typeof createEquipmentReviewSchema>;
+export type UpdateEquipmentReviewInput = z.infer<typeof updateEquipmentReviewSchema>;

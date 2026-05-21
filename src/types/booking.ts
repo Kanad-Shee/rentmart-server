@@ -8,13 +8,20 @@ import type {
 export type BookingPaymentOrder = {
   bookingId: string;
   orderId: string;
+  paymentSessionId: string;
   amount: number;
   currency: string;
-  keyId: string;
+  environment: "sandbox" | "production";
   renterName: string;
   renterEmail: string;
   renterPhone: string | null;
   description: string;
+};
+
+export type BookingDisputeImageSummary = {
+  id: string;
+  url: string;
+  position: number;
 };
 
 export type SafeBooking = {
@@ -36,10 +43,9 @@ export type SafeBooking = {
   paymentProvider: string | null;
   paymentIntentId: string | null;
   paymentAuthorizationId: string | null;
-  razorpayOrderId: string | null;
-  razorpayPaymentId: string | null;
-  razorpayTransferId: string | null;
-  razorpayRefundId: string | null;
+  cashfreeOrderId: string | null;
+  cashfreePaymentId: string | null;
+  cashfreePaymentSessionId: string | null;
   payoutLinkedAccountId: string | null;
   paymentAmountInPaise: number | null;
   paymentCurrency: string | null;
@@ -66,6 +72,7 @@ export type SafeBooking = {
   status: BookingStatus;
   ownerDecisionReason: string | null;
   disputeReason: string | null;
+  disputeImages: BookingDisputeImageSummary[];
   createdAt: string;
   updatedAt: string;
   equipment: {

@@ -194,7 +194,7 @@ export async function verifyBookingPaymentController(req: Request, res: Response
     return sendSuccess(
       res,
       200,
-      "Payment verification received. Final confirmation will complete from the webhook.",
+      "Payment verification received. Final confirmation will complete from Cashfree webhook processing.",
       booking,
     );
   } catch (error) {
@@ -278,7 +278,8 @@ export async function disputeBookingController(req: Request, res: Response) {
     }
 
     const input = req.body as DisputeBookingInput;
-    const booking = await disputeBooking(ownerId, bookingId, input);
+    const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+    const booking = await disputeBooking(ownerId, bookingId, input, files);
     return sendSuccess(res, 200, "Booking dispute opened successfully.", booking);
   } catch (error) {
     return handleBookingError(res, error);

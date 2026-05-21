@@ -3,8 +3,10 @@ import {
   approveEquipmentListing,
   createDraftEquipmentListing,
   createEquipmentListing,
+  createEquipmentReview,
   deleteEquipmentListing,
   EquipmentServiceError,
+  getEquipmentReviewDetails,
   getFeaturedEquipmentListings,
   getEquipmentAddressSuggestions,
   getPublicEquipmentListings,
@@ -14,15 +16,18 @@ import {
   getPendingEquipmentListings,
   getPublicEquipmentListingById,
   rejectEquipmentListing,
+  updateEquipmentReview,
   updateOwnerEquipmentListing,
 } from "../services/equipment.service";
 import type {
   AddressSuggestionsInput,
   CreateEquipmentInput,
   CreateDraftEquipmentInput,
+  CreateEquipmentReviewInput,
   GeocodeEquipmentInput,
   PlaceIdInput,
   RejectEquipmentInput,
+  UpdateEquipmentReviewInput,
   UpdateOwnerEquipmentInput,
 } from "../validators/equipment.schema";
 
@@ -312,6 +317,69 @@ export async function rejectEquipmentController(req: Request, res: Response) {
     const equipment = await rejectEquipmentListing(adminId, equipmentId, input);
 
     return sendSuccess(res, 200, "Equipment listing rejected successfully.", equipment);
+  } catch (error) {
+    return handleEquipmentError(res, error);
+  }
+}
+
+export async function getEquipmentReviewsController(req: Request, res: Response) {
+  try {
+    const equipmentId = getEquipmentIdParam(req);
+
+    if (!equipmentId) {
+      return sendError(res, 400, "Equipment id is required.");
+    }
+
+    const renterId = req.user?.role === "RENTER" ? req.user.userId : undefined;
+    const reviews = await getEquipmentReviewDetails(equipmentId, renterId);
+
+    return sendSuccess(res, 200, "Equipment reviews fetched successfully.", reviews);
+  } catch (error) {
+    return handleEquipmentError(res, error);
+  }
+}
+
+export async function createEquipmentReviewController(req: Request, res: Response) {
+  try {
+    const renterId = req.user?.userId ?? null;
+    const equipmentId = getEquipmentIdParam(req);
+
+    if (!renterId) {
+      return sendError(res, 401, "Unauthorized.");
+    }
+
+    if (!equipmentId) {
+      return sendError(res, 400, "Equipment id is required.");
+    }
+
+    const input = req.body as CreateEquipmentReviewInput;
+    const files = (req.files as Express.Multer.File[]) ?? [];
+    const reviews = await createEquipmentReview(renterId, equipmentId, input, files);
+
+    return sendSuccess(res, 201, "Equipment review created successfully.", reviews);
+  } catch (error) {
+    return handleEquipmentError(res, error);
+  }
+}
+
+export async function updateEquipmentReviewController(req: Request, res: Response) {
+  try {
+    const renterId = req.user?.userId ?? null;
+    const equipmentId = getEquipmentIdParam(req);
+
+    if (!renterId) {
+      return sendError(res, 401, "Unauthorized.");
+    }
+
+    if (!equipmentId) {
+      return sendError(res, 400, "Equipment id is required.");
+    }
+
+    const input = req.body as UpdateEquipmentReviewInput;
+    const files = (req.files as Express.Multer.File[]) ?? [];
+    const reviews = await updateEquipmentReview(renterId, equipmentId, input, files);
+
+    return sendSuccess(res, 200, "Equipment review updated successfully.", reviews);
   } catch (error) {
     return handleEquipmentError(res, error);
   }

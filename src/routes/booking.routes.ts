@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { UserRole } from "../generated/prisma/client";
+import { uploadOptionalBookingDisputeImages } from "../middlewares/image-upload.middleware";
 import {
   approveBookingController,
   completeBookingController,
@@ -120,6 +121,7 @@ bookingRouter.patch(
   "/:bookingId/dispute",
   authenticateUser,
   requireRole(UserRole.OWNER),
+  uploadOptionalBookingDisputeImages,
   validateRequest(bookingParamsSchema, "params"),
   validateRequest(disputeBookingSchema),
   disputeBookingController,

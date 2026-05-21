@@ -3,7 +3,8 @@ import type { NextFunction, Request, RequestHandler, Response } from "express";
 import type { ImageValidationOptions } from "../lib/equipment-image-validation";
 import { validateImageFiles } from "../lib/equipment-image-validation";
 import { CATEGORY_IMAGE_LIMITS } from "../configs/category.config";
-import { EQUIPMENT_IMAGE_LIMITS } from "../configs/equipment.config";
+import { BOOKING_DISPUTE_IMAGE_LIMITS } from "../configs/booking.config";
+import { EQUIPMENT_IMAGE_LIMITS, REVIEW_IMAGE_LIMITS } from "../configs/equipment.config";
 
 type UploadOptions = ImageValidationOptions & {
   fieldName: string;
@@ -77,6 +78,20 @@ export const uploadOptionalEquipmentImages = createImageUploadMiddleware({
   minFiles: 0,
   maxFiles: EQUIPMENT_IMAGE_LIMITS.max,
   maxBytes: EQUIPMENT_IMAGE_LIMITS.maxBytes,
+});
+
+export const uploadOptionalReviewImages = createImageUploadMiddleware({
+  fieldName: "photos",
+  minFiles: REVIEW_IMAGE_LIMITS.min,
+  maxFiles: REVIEW_IMAGE_LIMITS.max,
+  maxBytes: REVIEW_IMAGE_LIMITS.maxBytes,
+});
+
+export const uploadOptionalBookingDisputeImages = createImageUploadMiddleware({
+  fieldName: "photos",
+  minFiles: BOOKING_DISPUTE_IMAGE_LIMITS.min,
+  maxFiles: BOOKING_DISPUTE_IMAGE_LIMITS.max,
+  maxBytes: BOOKING_DISPUTE_IMAGE_LIMITS.maxBytes,
 });
 
 export const uploadCategoryImage = createImageUploadMiddleware({
