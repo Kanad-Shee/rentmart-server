@@ -43,8 +43,8 @@ type SendBookingEventEmailInput = {
   ctaHref?: string;
 };
 
-const DEFAULT_APP_NAME = "RentMart";
-const DEFAULT_SUPPORT_EMAIL = "support@rentmart.com";
+const APP_NAME = "RentMart";
+const DEFAULT_FROM_NAME = "RentMart";
 
 let transporter: Transporter | null = null;
 
@@ -52,6 +52,16 @@ function getEnv(name: string) {
   const value = process.env[name]?.trim();
 
   return value && value.length > 0 ? value : null;
+}
+
+function getRequiredEnv(name: string) {
+  const value = getEnv(name);
+
+  if (!value) {
+    throw new Error(`[mailer] Missing required environment variable: ${name}`);
+  }
+
+  return value;
 }
 
 function escapeHtml(value: string) {
@@ -92,28 +102,10 @@ function formatRecipient(recipient: string | MailRecipient) {
   return recipient.name ? `${recipient.name} <${recipient.email}>` : recipient.email;
 }
 
-function getAppName() {
-  return getEnv("APP_NAME") ?? DEFAULT_APP_NAME;
-}
-
-function getSupportEmail() {
-  return getEnv("SMTP_REPLY_TO") ?? getEnv("SMTP_FROM") ?? DEFAULT_SUPPORT_EMAIL;
-}
-
 function getFromAddress() {
-  const from = getEnv("SMTP_FROM");
-
-  if (from) {
-    return from;
-  }
-
-  const user = getEnv("SMTP_USER");
-
-  if (user) {
-    return `${getEnv("SMTP_FROM_NAME") ?? DEFAULT_APP_NAME} <${user}>`;
-  }
-
-  return `${getEnv("SMTP_FROM_NAME") ?? DEFAULT_APP_NAME} <${DEFAULT_SUPPORT_EMAIL}>`;
+  const user = getRequiredEnv("SMTP_USER");
+  const fromName = getEnv("SMTP_FROM_NAME") ?? DEFAULT_FROM_NAME;
+  return `${fromName} <${user}>`;
 }
 
 function createTransporter() {
@@ -121,57 +113,30 @@ function createTransporter() {
     return transporter;
   }
 
-  const host = getEnv("SMTP_HOST");
-  const port = getEnv("SMTP_PORT");
-  const user = getEnv("SMTP_USER");
-  const pass = getEnv("SMTP_PASS");
+  const host = getRequiredEnv("SMTP_HOST");
+  const port = getRequiredEnv("SMTP_PORT");
+  const user = getRequiredEnv("SMTP_USER");
+  const pass = getRequiredEnv("SMTP_PASS");
   const secure = getEnv("SMTP_SECURE") === "true";
 
-  if (host && port && user && pass) {
-    console.log("[mailer] configuring SMTP transporter", {
-      nodeEnv: process.env.NODE_ENV ?? "unknown",
-      host,
-      port,
-      secure,
-      user,
-      hasPass: Boolean(pass),
-      from: getFromAddress(),
-      replyTo: getSupportEmail(),
-    });
+  console.log("[mailer] configuring SMTP transporter", {
+    nodeEnv: process.env.NODE_ENV ?? "unknown",
+    host,
+    port,
+    secure,
+    user,
+    hasPass: Boolean(pass),
+    from: getFromAddress(),
+  });
 
-    transporter = nodemailer.createTransport({
-      host,
-      port: Number(port),
-      secure,
-      auth: {
-        user,
-        pass,
-      },
-    });
-
-    return transporter;
-  }
-
-  if (process.env.NODE_ENV === "production") {
-    console.error("[mailer] SMTP configuration missing in production", {
-      hasHost: Boolean(host),
-      hasPort: Boolean(port),
-      hasUser: Boolean(user),
-      hasPass: Boolean(pass),
-      from: getFromAddress(),
-      replyTo: getSupportEmail(),
-    });
-
-    throw new Error(
-      "SMTP is not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and SMTP_FROM before sending mail."
-    );
-  }
-
-  console.log("[mailer] using local development stream transport");
   transporter = nodemailer.createTransport({
-    streamTransport: true,
-    buffer: true,
-    newline: "unix",
+    host,
+    port: Number(port),
+    secure,
+    auth: {
+      user,
+      pass,
+    },
   });
 
   return transporter;
@@ -188,7 +153,6 @@ export async function sendMailMessage(input: SendMailInput) {
     to,
     subject: input.subject,
     from: getFromAddress(),
-    replyTo: input.replyTo ?? null,
   });
 
   try {
@@ -224,13 +188,11 @@ export async function sendMailMessage(input: SendMailInput) {
 }
 
 export async function sendOtpEmail(input: SendOtpEmailInput) {
-  const appName = getAppName();
-  const supportEmail = getSupportEmail();
   const recipientEmail = typeof input.to === "string" ? input.to : input.to.email;
   const recipientName = typeof input.to === "string" ? null : input.to.name ?? null;
   const expiresAtLabel = formatDateTime(input.expiresAt);
   const formattedOtpCode = formatOtpCode(input.otpCode);
-  const subject = input.subject ?? `${appName} OTP verification code`;
+  const subject = input.subject ?? `${APP_NAME} OTP verification code`;
   const message = input.message ?? "Use this code to complete your verification.";
 
   const greeting = recipientName ? `Hi ${recipientName},` : "Hi there,";
@@ -244,7 +206,7 @@ export async function sendOtpEmail(input: SendOtpEmailInput) {
     "",
     "If you did not request this, you can ignore this email.",
     "",
-    `- ${appName}`,
+    `- ${APP_NAME}`,
   ].join("\n");
 
   const html = `
@@ -254,7 +216,7 @@ export async function sendOtpEmail(input: SendOtpEmailInput) {
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
             <tr>
               <td style="font-size:18px; line-height:1; font-weight:900; letter-spacing:-0.04em; color:#1b4332;">
-                ${escapeHtml(appName).toUpperCase()}
+                ${escapeHtml(APP_NAME).toUpperCase()}
               </td>
               <td align="right" style="font-size:20px; line-height:1; color:#717973;">
                 &#128276;
@@ -297,7 +259,7 @@ export async function sendOtpEmail(input: SendOtpEmailInput) {
           </p>
 
           <p style="margin:24px 0 0; font-size:12px; line-height:1.4; color:#717973;">
-            &copy; 2024 ${escapeHtml(appName)} Industrial Marketplace. All rights reserved.
+            &copy; 2024 ${escapeHtml(APP_NAME)} Industrial Marketplace. All rights reserved.
           </p>
         </div>
       </div>
@@ -309,7 +271,6 @@ export async function sendOtpEmail(input: SendOtpEmailInput) {
     subject,
     text,
     html,
-    replyTo: supportEmail,
   });
 }
 
@@ -321,8 +282,6 @@ function renderOperationalEmailShell(input: {
   ctaLabel?: string;
   ctaHref?: string;
 }) {
-  const appName = getAppName();
-
   const detailsHtml = input.details?.length
     ? `
       <div style="margin:32px 0 0; padding:24px; background-color:#f8faf7; border:1px solid rgba(193,200,194,0.35); border-radius:8px;">
@@ -356,7 +315,7 @@ function renderOperationalEmailShell(input: {
       <div style="max-width:600px; margin:0 auto; background-color:#ffffff; border:1px solid rgba(193,200,194,0.45); border-radius:8px; overflow:hidden; box-shadow:0 1px 2px rgba(0,0,0,0.04);">
         <div style="padding:24px 32px; border-bottom:1px solid rgba(193,200,194,0.35);">
           <div style="font-size:18px; line-height:1; font-weight:900; letter-spacing:-0.04em; color:#1b4332;">
-            ${escapeHtml(appName).toUpperCase()}
+            ${escapeHtml(APP_NAME).toUpperCase()}
           </div>
         </div>
         <div style="padding:48px 40px;">
@@ -381,7 +340,6 @@ export async function sendAccountEventEmail(input: SendAccountEventEmailInput) {
   const recipientEmail = typeof input.to === "string" ? input.to : input.to.email;
   const recipientName = typeof input.to === "string" ? null : input.to.name ?? null;
   const greeting = recipientName ? `Hi ${recipientName},` : "Hi there,";
-  const supportEmail = getSupportEmail();
   const text = [
     greeting,
     "",
@@ -390,7 +348,7 @@ export async function sendAccountEventEmail(input: SendAccountEventEmailInput) {
     input.message,
     "",
     ...(input.ctaLabel && input.ctaHref ? [`${input.ctaLabel}: ${input.ctaHref}`, ""] : []),
-    `- ${getAppName()}`,
+    `- ${APP_NAME}`,
   ].join("\n");
 
   return sendMailMessage({
@@ -404,7 +362,6 @@ export async function sendAccountEventEmail(input: SendAccountEventEmailInput) {
       ctaLabel: input.ctaLabel,
       ctaHref: input.ctaHref,
     }),
-    replyTo: supportEmail,
   });
 }
 
@@ -412,7 +369,6 @@ export async function sendBookingEventEmail(input: SendBookingEventEmailInput) {
   const recipientEmail = typeof input.to === "string" ? input.to : input.to.email;
   const recipientName = typeof input.to === "string" ? null : input.to.name ?? null;
   const greeting = recipientName ? `Hi ${recipientName},` : "Hi there,";
-  const supportEmail = getSupportEmail();
   const dateRange = formatDateRangeLabel(input.startDate, input.endDate);
   const text = [
     greeting,
@@ -426,7 +382,7 @@ export async function sendBookingEventEmail(input: SendBookingEventEmailInput) {
     `Status: ${input.statusLabel}`,
     "",
     ...(input.ctaLabel && input.ctaHref ? [`${input.ctaLabel}: ${input.ctaHref}`, ""] : []),
-    `- ${getAppName()}`,
+    `- ${APP_NAME}`,
   ].join("\n");
 
   return sendMailMessage({
@@ -445,6 +401,5 @@ export async function sendBookingEventEmail(input: SendBookingEventEmailInput) {
       ctaLabel: input.ctaLabel,
       ctaHref: input.ctaHref,
     }),
-    replyTo: supportEmail,
   });
 }
