@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "bun --watch src/index.ts",
     "build": "bunx tsc -p tsconfig.build.json --pretty false",
-    "start": "bun run src/index.ts",
+    "start": "node run dist/index.js",
     "postinstall": "prisma generate",
     "test": "bun test"
   },
