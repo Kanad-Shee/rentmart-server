@@ -8,6 +8,9 @@ import { notificationRouter } from "./routes/notification.routes.js";
 import { paymentRouter } from "./routes/payment.routes.js";
 import { supportQueryRouter } from "./routes/support-query.routes.js";
 import { wishlistRouter } from "./routes/wishlist.routes.js";
+import { initializeMailer } from "./lib/mailer.js";
+import { initializeDatabase } from "./lib/db.js";
+import { initializeRedis } from "./lib/redis.js";
 
 const app = express();
 const port = 8080;
@@ -29,6 +32,27 @@ app.use("/payments", paymentRouter);
 app.use("/support-queries", supportQueryRouter);
 app.use("/wishlists", wishlistRouter);
 
-app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
+app.listen(port, async () => {
+  console.log("\n" + "=".repeat(60));
+  console.log("🚀 RentMart Server Starting Up");
+  console.log("=".repeat(60));
+
+  // Initialize mail transporter
+  const mailerStatus = initializeMailer();
+  console.log(`✓ Mail Transporter: ${mailerStatus.status}`);
+
+  // Initialize database
+  const dbStatus = await initializeDatabase();
+  console.log(`${dbStatus.connected ? "✓" : "✗"} Database: ${dbStatus.status}`);
+
+  // Initialize Redis
+  const redisStatus = await initializeRedis();
+  console.log(
+    `${redisStatus.connected ? "✓" : "⚠"} Redis: ${redisStatus.status}`,
+  );
+
+  console.log(`✓ Server: Running on port ${port}`);
+  console.log("=".repeat(60));
+  console.log(`📍 Environment: ${process.env.NODE_ENV || "development"}`);
+  console.log("=".repeat(60) + "\n");
 });

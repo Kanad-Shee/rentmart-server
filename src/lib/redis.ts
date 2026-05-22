@@ -20,7 +20,10 @@ function getRedisUrl() {
   return process.env.REDIS_URL?.trim() || null;
 }
 
-function getMemoryRateLimitCounter(key: string, windowMs: number): RateLimitCounterResult {
+function getMemoryRateLimitCounter(
+  key: string,
+  windowMs: number,
+): RateLimitCounterResult {
   const now = Date.now();
   const existingEntry = memoryRateLimitStore.get(key);
 
@@ -76,7 +79,9 @@ async function getRedisClient() {
       return redisClient;
     } catch (error) {
       redisClient = null;
-      console.warn("Redis is unavailable, falling back to in-memory rate limit storage.");
+      console.warn(
+        "Redis is unavailable, falling back to in-memory rate limit storage.",
+      );
       console.error(error);
       return null;
     } finally {
@@ -89,7 +94,7 @@ async function getRedisClient() {
 
 export async function incrementRateLimitCounter(
   key: string,
-  windowMs: number
+  windowMs: number,
 ): Promise<RateLimitCounterResult> {
   const client = await getRedisClient();
   const ttlSeconds = Math.max(1, Math.ceil(windowMs / 1000));
@@ -134,3 +139,37 @@ export async function resetRateLimitCounter(key: string) {
 }
 
 export type { RateLimitCounterResult };
+
+export async function initializeRedis(): Promise<{
+  status: string;
+  connected: boolean;
+}> {
+  const redisUrl = getRedisUrl();
+
+  if (!redisUrl) {
+    return {
+      status: "In-memory rate limiting (REDIS_URL not set)",
+      connected: false,
+    };
+  }
+
+  try {
+    const client = await getRedisClient();
+    if (client?.isOpen) {
+      return {
+        status: "Connected to Redis",
+        connected: true,
+      };
+    } else {
+      return {
+        status: "Failed to connect to Redis, using in-memory fallback",
+        connected: false,
+      };
+    }
+  } catch (error) {
+    return {
+      status: "Failed to connect to Redis, using in-memory fallback",
+      connected: false,
+    };
+  }
+}

@@ -58,6 +58,53 @@ type SendEmailInput = {
 const APP_NAME = "RentMart";
 const DEFAULT_FROM_NAME = "RentMart";
 
+// Initialize transporter once at startup
+let transporter: any = null;
+let transporterError: Error | null = null;
+
+function initializeTransporter() {
+  try {
+    const host = getRequiredEnv("SMTP_HOST");
+    const port = Number(getRequiredEnv("SMTP_PORT"));
+    const user = getRequiredEnv("SMTP_USER");
+    const pass = getRequiredEnv("SMTP_PASS");
+
+    // Determine secure based on port (465 = secure, 587 = not secure)
+    const secure = getEnv("SMTP_SECURE") === "true" || port === 465;
+
+    const transportOptions = {
+      host,
+      port,
+      secure,
+      auth: {
+        user,
+        pass,
+      },
+      // Production pool settings
+      pool: true,
+      maxConnections: 5,
+      maxMessages: 100,
+      rateDelta: 4000,
+      rateLimit: 14,
+      logger: process.env.NODE_ENV === "development",
+      debug: process.env.NODE_ENV === "development",
+    } as Parameters<typeof nodemailer.createTransport>[0];
+
+    transporter = nodemailer.createTransport(transportOptions);
+
+    console.log("[mailer] Transporter initialized successfully");
+    return transporter;
+  } catch (error) {
+    transporterError =
+      error instanceof Error ? error : new Error(String(error));
+    console.error(
+      "[mailer] Failed to initialize transporter:",
+      transporterError,
+    );
+    throw transporterError;
+  }
+}
+
 function getEnv(name: string) {
   const value = process.env[name]?.trim();
   return value && value.length > 0 ? value : null;
@@ -71,6 +118,34 @@ function getRequiredEnv(name: string) {
   }
 
   return value;
+}
+
+function getTransporter() {
+  if (!transporter) {
+    initializeTransporter();
+  }
+  return transporter;
+}
+
+export function initializeMailer(): { status: string; initialized: boolean } {
+  try {
+    initializeTransporter();
+    return {
+      status: "Mail transporter initialized successfully",
+      initialized: true,
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("[mailer] Failed to initialize at startup:", error);
+    if (process.env.NODE_ENV === "production") {
+      // In production, fail fast if mailer can't initialize
+      process.exit(1);
+    }
+    return {
+      status: `Failed to initialize mail transporter: ${errorMessage}`,
+      initialized: false,
+    };
+  }
 }
 
 function escapeHtml(value: string) {
@@ -87,7 +162,9 @@ function formatRecipient(recipient: string | MailRecipient) {
     return recipient;
   }
 
-  return recipient.name ? `${recipient.name} <${recipient.email}>` : recipient.email;
+  return recipient.name
+    ? `${recipient.name} <${recipient.email}>`
+    : recipient.email;
 }
 
 function formatDateTime(value: Date) {
@@ -155,7 +232,9 @@ function renderDetailRows(
         .map(
           (detail, index) => `
             <div style="display: flex; justify-content: space-between; gap: 16px; ${
-              index < details.length - 1 ? "padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid #e5e7eb;" : ""
+              index < details.length - 1
+                ? "padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid #e5e7eb;"
+                : ""
             }">
               <span style="font-size: 12px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.08em;">
                 ${escapeHtml(detail.label)}
@@ -222,21 +301,7 @@ export const sendEmail = async ({
   details,
 }: SendEmailInput) => {
   try {
-    const host = getRequiredEnv("SMTP_HOST");
-    const port = Number(getRequiredEnv("SMTP_PORT"));
-    const user = getRequiredEnv("SMTP_USER");
-    const pass = getRequiredEnv("SMTP_PASS");
-    const secure = getEnv("SMTP_SECURE") === "true";
-
-    const transporter = nodemailer.createTransport({
-      host,
-      port,
-      secure,
-      auth: {
-        user,
-        pass,
-      },
-    });
+    const transporterInstance = getTransporter();
 
     const html = renderEmailSkeleton({
       email,
@@ -249,31 +314,55 @@ export const sendEmail = async ({
       details,
     });
 
-    const info = await transporter.sendMail({
+    const mailOptions = {
       from: getFromAddress(),
       to: email,
       subject: title,
       html,
-    });
+    };
 
-    console.log("[mailer] message sent", {
+    // Verify connection before sending (optional but recommended for production)
+    if (process.env.NODE_ENV === "production") {
+      try {
+        await transporterInstance.verify();
+      } catch (verifyError) {
+        console.error(
+          "[mailer] SMTP connection verification failed:",
+          verifyError,
+        );
+        throw verifyError;
+      }
+    }
+
+    const info = await transporterInstance.sendMail(mailOptions);
+
+    console.log("[mailer] message sent successfully", {
       to: email,
       subject: title,
       purpose,
       messageId: info.messageId,
-      response: info.response ?? null,
+      timestamp: new Date().toISOString(),
     });
 
     return info;
   } catch (error) {
-    console.error("[mailer] sendEmail error:", error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("[mailer] sendEmail error:", {
+      to: email,
+      subject: title,
+      purpose,
+      error: errorMessage,
+      timestamp: new Date().toISOString(),
+    });
     throw error;
   }
 };
 
 export async function sendOtpEmail(input: SendOtpEmailInput) {
-  const recipientEmail = typeof input.to === "string" ? input.to : input.to.email;
-  const recipientName = typeof input.to === "string" ? null : input.to.name ?? null;
+  const recipientEmail =
+    typeof input.to === "string" ? input.to : input.to.email;
+  const recipientName =
+    typeof input.to === "string" ? null : (input.to.name ?? null);
   const greeting = recipientName ? `Hi ${recipientName},` : "Hi there,";
   const formattedOtpCode = formatOtpCode(input.otpCode);
   const expiresAtLabel = formatDateTime(input.expiresAt);
@@ -298,8 +387,10 @@ export async function sendOtpEmail(input: SendOtpEmailInput) {
 }
 
 export async function sendAccountEventEmail(input: SendAccountEventEmailInput) {
-  const recipientEmail = typeof input.to === "string" ? input.to : input.to.email;
-  const recipientName = typeof input.to === "string" ? null : input.to.name ?? null;
+  const recipientEmail =
+    typeof input.to === "string" ? input.to : input.to.email;
+  const recipientName =
+    typeof input.to === "string" ? null : (input.to.name ?? null);
   const greeting = recipientName ? `Hi ${recipientName},` : "Hi there,";
 
   const body = `
@@ -321,8 +412,10 @@ export async function sendAccountEventEmail(input: SendAccountEventEmailInput) {
 }
 
 export async function sendBookingEventEmail(input: SendBookingEventEmailInput) {
-  const recipientEmail = typeof input.to === "string" ? input.to : input.to.email;
-  const recipientName = typeof input.to === "string" ? null : input.to.name ?? null;
+  const recipientEmail =
+    typeof input.to === "string" ? input.to : input.to.email;
+  const recipientName =
+    typeof input.to === "string" ? null : (input.to.name ?? null);
   const greeting = recipientName ? `Hi ${recipientName},` : "Hi there,";
 
   const body = `
