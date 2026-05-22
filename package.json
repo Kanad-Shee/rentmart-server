@@ -5,8 +5,8 @@
   "private": true,
   "scripts": {
     "dev": "bun --watch src/index.ts",
-    "build": "tsc -p",
-    "start": "node run dist/index.js",
+    "build": "bunx tsc -p tsconfig.build.json --pretty false",
+    "start": "bun run dist/index.js",
     "postinstall": "prisma generate",
     "test": "bun test"
   },
