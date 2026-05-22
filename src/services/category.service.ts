@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { deleteCloudinaryImage, uploadCategoryImage } from "../lib/cloudinary.js";
 import { db } from "../lib/db.js";
+import { logServiceError } from "../lib/error-logger.js";
 import type { SafeCategory } from "../types/category.js";
 import type { CreateCategoryInput, UpdateCategoryInput } from "../validators/category.schema.js";
 
@@ -138,6 +139,14 @@ export async function createCategory(input: CreateCategoryInput, file: Express.M
   try {
     uploadedImage = await uploadCategoryImage(file);
   } catch (error) {
+    logServiceError({
+      service: "category.service",
+      action: "createCategory.uploadCategoryImage",
+      error,
+      context: {
+        title: input.title.trim(),
+      },
+    });
     throw new CategoryServiceError(
       error instanceof Error ? error.message : "Failed to upload category image.",
       502,
@@ -164,8 +173,25 @@ export async function createCategory(input: CreateCategoryInput, file: Express.M
     try {
       await deleteCloudinaryImage(uploadedImage.publicId);
     } catch (cleanupError) {
-      console.error("Failed to clean up uploaded category image:", cleanupError);
+      logServiceError({
+        service: "category.service",
+        action: "createCategory.cleanupUploadedImage",
+        error: cleanupError,
+        context: {
+          publicId: uploadedImage.publicId,
+        },
+      });
     }
+
+    logServiceError({
+      service: "category.service",
+      action: "createCategory.dbCreate",
+      error,
+      context: {
+        title: input.title.trim(),
+        imagePublicId: uploadedImage.publicId,
+      },
+    });
 
     if (error instanceof CategoryServiceError) {
       throw error;
@@ -208,6 +234,15 @@ export async function updateCategory(
       nextImageUrl = uploadedImage.secureUrl;
       nextImagePublicId = uploadedImage.publicId;
     } catch (error) {
+      logServiceError({
+        service: "category.service",
+        action: "updateCategory.uploadCategoryImage",
+        error,
+        context: {
+          categoryId: id,
+          title: normalizedTitle,
+        },
+      });
       throw new CategoryServiceError(
         error instanceof Error ? error.message : "Failed to upload category image.",
         502,
@@ -237,9 +272,27 @@ export async function updateCategory(
       try {
         await deleteCloudinaryImage(uploadedImage.publicId);
       } catch (cleanupError) {
-        console.error("Failed to clean up uploaded category image:", cleanupError);
+        logServiceError({
+          service: "category.service",
+          action: "updateCategory.cleanupUploadedImage",
+          error: cleanupError,
+          context: {
+            categoryId: id,
+            publicId: uploadedImage.publicId,
+          },
+        });
       }
     }
+
+    logServiceError({
+      service: "category.service",
+      action: "updateCategory.dbUpdate",
+      error,
+      context: {
+        categoryId: id,
+        hasNewUpload: Boolean(uploadedImage),
+      },
+    });
 
     if (error instanceof CategoryServiceError) {
       throw error;

@@ -4,6 +4,7 @@ import {
   type EquipmentStatusValue,
 } from "../configs/equipment.config.js";
 import { db } from "../lib/db.js";
+import { logServiceError } from "../lib/error-logger.js";
 import {
   deleteCloudinaryImage,
   uploadEquipmentImage,
@@ -706,6 +707,12 @@ export async function geocodeEquipmentLocation(address: string) {
   try {
     return await geocodeEquipmentAddress(address);
   } catch (error) {
+    logServiceError({
+      service: "equipment.service",
+      action: "geocodeEquipmentLocation",
+      error,
+      context: { address },
+    });
     throw new EquipmentServiceError(
       error instanceof Error
         ? error.message
@@ -720,6 +727,12 @@ export async function getEquipmentAddressSuggestions(input: string) {
   try {
     return await autocompleteEquipmentAddresses(input);
   } catch (error) {
+    logServiceError({
+      service: "equipment.service",
+      action: "getEquipmentAddressSuggestions",
+      error,
+      context: { input },
+    });
     throw new EquipmentServiceError(
       error instanceof Error
         ? error.message
@@ -734,6 +747,12 @@ export async function geocodeEquipmentLocationByPlaceId(placeId: string) {
   try {
     return await geocodeEquipmentPlaceId(placeId);
   } catch (error) {
+    logServiceError({
+      service: "equipment.service",
+      action: "geocodeEquipmentLocationByPlaceId",
+      error,
+      context: { placeId },
+    });
     throw new EquipmentServiceError(
       error instanceof Error
         ? error.message
@@ -764,6 +783,16 @@ export async function createEquipmentListing(
   try {
     location = await geocodeEquipmentAddress(input.address);
   } catch (error) {
+    logServiceError({
+      service: "equipment.service",
+      action: "createEquipmentListing.geocodeEquipmentAddress",
+      error,
+      context: {
+        ownerId,
+        categoryId: input.categoryId,
+        address: input.address,
+      },
+    });
     throw new EquipmentServiceError(
       error instanceof Error
         ? error.message
@@ -834,6 +863,17 @@ export async function createEquipmentListing(
   } catch (error) {
     await cleanupUploadedImages(uploadedImages.map((image) => image.publicId));
 
+    logServiceError({
+      service: "equipment.service",
+      action: "createEquipmentListing",
+      error,
+      context: {
+        ownerId,
+        categoryId: input.categoryId,
+        uploadedImageCount: uploadedImages.length,
+      },
+    });
+
     if (error instanceof EquipmentServiceError) {
       throw error;
     }
@@ -866,6 +906,16 @@ export async function createDraftEquipmentListing(
   try {
     location = await geocodeEquipmentAddress(input.address);
   } catch (error) {
+    logServiceError({
+      service: "equipment.service",
+      action: "createDraftEquipmentListing.geocodeEquipmentAddress",
+      error,
+      context: {
+        ownerId,
+        categoryId: input.categoryId,
+        address: input.address,
+      },
+    });
     throw new EquipmentServiceError(
       error instanceof Error
         ? error.message
@@ -937,6 +987,17 @@ export async function createDraftEquipmentListing(
     return mapRowToPublicEquipment(equipment, imageRows);
   } catch (error) {
     await cleanupUploadedImages(uploadedImages.map((image) => image.publicId));
+
+    logServiceError({
+      service: "equipment.service",
+      action: "createDraftEquipmentListing",
+      error,
+      context: {
+        ownerId,
+        categoryId: input.categoryId,
+        uploadedImageCount: uploadedImages.length,
+      },
+    });
 
     if (error instanceof EquipmentServiceError) {
       throw error;
@@ -1217,6 +1278,16 @@ export async function createEquipmentReview(
       },
     });
   } catch (error) {
+    logServiceError({
+      service: "equipment.service",
+      action: "createEquipmentReview",
+      error,
+      context: {
+        renterId,
+        equipmentId,
+        uploadedImageCount: uploadedImages.length,
+      },
+    });
     await cleanupUploadedImages(uploadedImages.map((image) => image.publicId));
     throw error;
   }
@@ -1317,6 +1388,16 @@ export async function updateEquipmentReview(
       }
     });
   } catch (error) {
+    logServiceError({
+      service: "equipment.service",
+      action: "updateEquipmentReview",
+      error,
+      context: {
+        renterId,
+        equipmentId,
+        uploadedImageCount: uploadedImages.length,
+      },
+    });
     await cleanupUploadedImages(uploadedImages.map((image) => image.publicId));
     throw error;
   }
@@ -1377,6 +1458,16 @@ export async function updateOwnerEquipmentListing(
   try {
     location = await geocodeEquipmentAddress(input.address);
   } catch (error) {
+    logServiceError({
+      service: "equipment.service",
+      action: "updateOwnerEquipmentListing.geocodeEquipmentAddress",
+      error,
+      context: {
+        ownerId,
+        equipmentId,
+        address: input.address,
+      },
+    });
     throw new EquipmentServiceError(
       error instanceof Error
         ? error.message
@@ -1475,6 +1566,18 @@ export async function updateOwnerEquipmentListing(
     return mapRowToPublicEquipment(refreshed, imageRows);
   } catch (error) {
     await cleanupUploadedImages(uploadedImages.map((image) => image.publicId));
+
+    logServiceError({
+      service: "equipment.service",
+      action: "updateOwnerEquipmentListing",
+      error,
+      context: {
+        ownerId,
+        equipmentId,
+        nextStatus,
+        uploadedImageCount: uploadedImages.length,
+      },
+    });
 
     if (error instanceof EquipmentServiceError) {
       throw error;

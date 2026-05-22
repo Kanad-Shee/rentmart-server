@@ -36,6 +36,21 @@ import {
 
 const authRouter = Router();
 
+function maskEmailForLogs(email: unknown) {
+  if (typeof email !== "string" || !email.includes("@")) {
+    return null;
+  }
+
+  const [localPartRaw, domain] = email.split("@");
+  const localPart = localPartRaw ?? "";
+  const visibleLocal =
+    localPart.length <= 2
+      ? `${localPart[0] ?? "*"}*`
+      : `${localPart.slice(0, 2)}***`;
+
+  return `${visibleLocal}@${domain}`;
+}
+
 const signupRateLimit = createRateLimiter({
   ...AUTH_RATE_LIMITS.signup,
   getIdentifier: getIpRateLimitKey,
@@ -58,6 +73,17 @@ const resendOtpRateLimit = createRateLimiter({
 
 authRouter.post(
   "/signup",
+  (req, _res, next) => {
+    console.log("[auth.routes] Signup request received", {
+      method: req.method,
+      path: req.originalUrl,
+      ip: req.ip,
+      email: maskEmailForLogs(req.body?.email),
+      role: req.body?.role ?? null,
+      timestamp: new Date().toISOString(),
+    });
+    next();
+  },
   signupRateLimit,
   validateRequest(signUpSchema),
   signUpController,

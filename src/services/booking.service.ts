@@ -6,6 +6,7 @@ import {
   type OwnerPayoutStatus,
 } from "@prisma/client";
 import { db } from "../lib/db.js";
+import { logServiceError } from "../lib/error-logger.js";
 import {
   canOwnerCompleteBookingStatus,
   canOwnerDisputeBookingStatus,
@@ -238,7 +239,16 @@ async function sendBookingEventEmailSafe(
   try {
     await sendBookingEventEmail(input);
   } catch (error) {
-    console.error("Booking event email error:", error);
+    logServiceError({
+      service: "booking.service",
+      action: "sendBookingEventEmailSafe",
+      error,
+      context: {
+        to: typeof input.to === "string" ? input.to : input.to.email,
+        subject: input.subject,
+        equipmentTitle: input.equipmentTitle,
+      },
+    });
   }
 }
 
@@ -1243,6 +1253,16 @@ export async function createBookingPaymentOrder(
       orderId = order.order_id;
       paymentSessionId = order.payment_session_id;
     } catch (error) {
+      logServiceError({
+        service: "booking.service",
+        action: "createBookingPaymentOrder.createCashfreeOrder",
+        error,
+        context: {
+          bookingId: booking.id,
+          cashfreeOrderId: nextOrderId,
+          renterId: booking.renterId,
+        },
+      });
       mapCashfreeError(error);
     }
   }
@@ -1333,6 +1353,15 @@ export async function verifyCompletedBookingPayment(
   try {
     order = await getCashfreeOrder(cashfreeOrderId);
   } catch (error) {
+    logServiceError({
+      service: "booking.service",
+      action: "verifyBookingPayment.getCashfreeOrder",
+      error,
+      context: {
+        bookingId: booking.id,
+        cashfreeOrderId,
+      },
+    });
     mapCashfreeError(error);
   }
 
@@ -1365,6 +1394,15 @@ export async function verifyCompletedBookingPayment(
         paymentId = successfulPayment.cf_payment_id;
       }
     } catch (error) {
+      logServiceError({
+        service: "booking.service",
+        action: "verifyBookingPayment.getCashfreePaymentsForOrder",
+        error,
+        context: {
+          bookingId: booking.id,
+          cashfreeOrderId,
+        },
+      });
       mapCashfreeError(error);
     }
 
@@ -1774,6 +1812,16 @@ export async function disputeBooking(
       },
     });
   } catch (error) {
+    logServiceError({
+      service: "booking.service",
+      action: "disputeBooking.dbUpdate",
+      error,
+      context: {
+        bookingId: booking.id,
+        ownerId,
+        uploadedImageCount: uploadedImages.length,
+      },
+    });
     await cleanupUploadedImages(uploadedImages.map((image) => image.publicId));
     throw error;
   }
@@ -1955,6 +2003,16 @@ async function storeIncomingWebhookEvent(eventId: string, eventType: string, ent
       return null;
     }
 
+    logServiceError({
+      service: "booking.service",
+      action: "storeIncomingWebhookEvent",
+      error,
+      context: {
+        eventId,
+        eventType,
+        entityId,
+      },
+    });
     throw error;
   }
 }

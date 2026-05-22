@@ -16,7 +16,9 @@ import {
   validatePassword as compareAuthPassword,
 } from "../lib/auth-crypto.js";
 import { db } from "../lib/db.js";
+import { logServiceError } from "../lib/error-logger.js";
 import { sendAccountEventEmail, sendOtpEmail } from "../lib/mailer.js";
+// import { sendOtpEmail } from "../lib/resend.js";
 import { checkSmsVerification, startSmsVerification } from "../lib/twilio.js";
 import {
   createAddressUpdatedNotification,
@@ -60,7 +62,9 @@ const authUserSelect = {
   passwordHash: true,
 } as const;
 
-export type PublicUser = Prisma.UserGetPayload<{ select: typeof publicUserSelect }>;
+export type PublicUser = Prisma.UserGetPayload<{
+  select: typeof publicUserSelect;
+}>;
 type AuthUserRecord = Prisma.UserGetPayload<{ select: typeof authUserSelect }>;
 
 export type SignUpResult = {
@@ -128,6 +132,21 @@ export class AuthServiceError extends Error {
   }
 }
 
+function maskEmailForLogs(email: string) {
+  if (!email.includes("@")) {
+    return email;
+  }
+
+  const [localPartRaw, domain] = email.split("@");
+  const localPart = localPartRaw ?? "";
+  const visibleLocal =
+    localPart.length <= 2
+      ? `${localPart[0] ?? "*"}*`
+      : `${localPart.slice(0, 2)}***`;
+
+  return `${visibleLocal}@${domain}`;
+}
+
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
@@ -180,9 +199,10 @@ function getRequiredEnv(name: string) {
 
 function getAccessTokenExpiresIn(rememberMe = false) {
   return rememberMe
-    ? process.env.JWT_ACCESS_TOKEN_EXPIRES_IN_REMEMBER_ME ??
-        DEFAULT_ACCESS_TOKEN_EXPIRES_IN_REMEMBER_ME
-    : process.env.JWT_ACCESS_TOKEN_EXPIRES_IN ?? DEFAULT_ACCESS_TOKEN_EXPIRES_IN;
+    ? (process.env.JWT_ACCESS_TOKEN_EXPIRES_IN_REMEMBER_ME ??
+        DEFAULT_ACCESS_TOKEN_EXPIRES_IN_REMEMBER_ME)
+    : (process.env.JWT_ACCESS_TOKEN_EXPIRES_IN ??
+        DEFAULT_ACCESS_TOKEN_EXPIRES_IN);
 }
 
 function getOtpExpiresAt() {
@@ -209,7 +229,9 @@ async function compareOtp(otp: string, otpHash: string) {
   return compareAuthOtp(otp, otpHash);
 }
 
-function toPublicUser(user: Pick<AuthUserRecord, keyof typeof publicUserSelect>) {
+function toPublicUser(
+  user: Pick<AuthUserRecord, keyof typeof publicUserSelect>,
+) {
   return {
     id: user.id,
     fullName: user.fullName,
@@ -302,12 +324,26 @@ async function findPublicUserById(id: string) {
 export async function registerUser(input: SignUpInput): Promise<SignUpResult> {
   const email = normalizeEmail(input.email);
 
+  console.log("[auth.service] Starting user registration", {
+    email: maskEmailForLogs(email),
+    role: input.role,
+    timestamp: new Date().toISOString(),
+  });
+
   const existingUser = await db.user.findUnique({
     where: { email },
     select: { id: true },
   });
 
   if (existingUser) {
+    console.warn(
+      "[auth.service] Registration blocked because email already exists",
+      {
+        email: maskEmailForLogs(email),
+        existingUserId: existingUser.id,
+        timestamp: new Date().toISOString(),
+      },
+    );
     throw new AuthServiceError(
       "An account with this email already exists.",
       409,
@@ -320,7 +356,18 @@ export async function registerUser(input: SignUpInput): Promise<SignUpResult> {
   const otpHash = await hashOtp(otpCode);
   const otpExpiresAt = getOtpExpiresAt();
 
+  console.log("[auth.service] Signup credentials and OTP prepared", {
+    email: maskEmailForLogs(email),
+    otpExpiresAt: otpExpiresAt.toISOString(),
+    timestamp: new Date().toISOString(),
+  });
+
   const createdUser = await db.$transaction(async (tx) => {
+    console.log("[auth.service] Creating signup user and OTP records", {
+      email: maskEmailForLogs(email),
+      timestamp: new Date().toISOString(),
+    });
+
     const user = await tx.user.create({
       data: {
         fullName: input.fullName.trim(),
@@ -346,17 +393,54 @@ export async function registerUser(input: SignUpInput): Promise<SignUpResult> {
       },
     });
 
+    console.log("[auth.service] Signup user and OTP records created", {
+      userId: user.id,
+      email: maskEmailForLogs(user.email),
+      timestamp: new Date().toISOString(),
+    });
+
     return user;
   });
 
-  await sendOtpEmail({
-    to: {
-      email: createdUser.email,
-      name: createdUser.fullName,
-    },
-    otpCode,
-    expiresAt: otpExpiresAt,
-    message: "Use this code to verify your RentMart account.",
+  console.log("[auth.service] Sending signup OTP email", {
+    userId: createdUser.id,
+    email: maskEmailForLogs(createdUser.email),
+    timestamp: new Date().toISOString(),
+  });
+
+  try {
+    await sendOtpEmail({
+      to: {
+        email: createdUser.email,
+        name: createdUser.fullName,
+      },
+      otpCode,
+      expiresAt: otpExpiresAt,
+      message: "Use this code to verify your RentMart account.",
+    });
+  } catch (error) {
+    logServiceError({
+      service: "auth.service",
+      action: "registerUser.sendOtpEmail",
+      error,
+      context: {
+        userId: createdUser.id,
+        email: maskEmailForLogs(createdUser.email),
+      },
+    });
+
+    throw new AuthServiceError(
+      "Unable to send verification email. If you are using Resend test sender onboarding@resend.dev, switch to RESEND_FROM_EMAIL on a verified domain.",
+      502,
+      "EMAIL_SEND_FAILED",
+    );
+  }
+
+  console.log("[auth.service] Signup OTP email sent", {
+    userId: createdUser.id,
+    email: maskEmailForLogs(createdUser.email),
+    otpExpiresAt: otpExpiresAt.toISOString(),
+    timestamp: new Date().toISOString(),
   });
 
   return {
@@ -369,13 +453,24 @@ export async function signInUser(input: SignInInput): Promise<SignInResult> {
   const user = await findUserByEmail(input.email);
 
   if (!user) {
-    throw new AuthServiceError("Invalid email or password.", 401, "INVALID_CREDENTIALS");
+    throw new AuthServiceError(
+      "Invalid email or password.",
+      401,
+      "INVALID_CREDENTIALS",
+    );
   }
 
-  const passwordMatches = await comparePassword(input.password, user.passwordHash);
+  const passwordMatches = await comparePassword(
+    input.password,
+    user.passwordHash,
+  );
 
   if (!passwordMatches) {
-    throw new AuthServiceError("Invalid email or password.", 401, "INVALID_CREDENTIALS");
+    throw new AuthServiceError(
+      "Invalid email or password.",
+      401,
+      "INVALID_CREDENTIALS",
+    );
   }
 
   if (!user.emailVerified) {
@@ -399,7 +494,9 @@ export async function signInUser(input: SignInInput): Promise<SignInResult> {
   };
 }
 
-export async function verifyOtp(input: VerifyOtpInput): Promise<VerifyOtpResult> {
+export async function verifyOtp(
+  input: VerifyOtpInput,
+): Promise<VerifyOtpResult> {
   const email = normalizeEmail(input.email);
 
   const user = await db.user.findUnique({
@@ -408,7 +505,11 @@ export async function verifyOtp(input: VerifyOtpInput): Promise<VerifyOtpResult>
   });
 
   if (!user) {
-    throw new AuthServiceError("No account found for this email.", 404, "USER_NOT_FOUND");
+    throw new AuthServiceError(
+      "No account found for this email.",
+      404,
+      "USER_NOT_FOUND",
+    );
   }
 
   if (user.emailVerified) {
@@ -495,7 +596,9 @@ export async function verifyOtp(input: VerifyOtpInput): Promise<VerifyOtpResult>
   };
 }
 
-export async function resendOtp(input: ResendOtpInput): Promise<ResendOtpResult> {
+export async function resendOtp(
+  input: ResendOtpInput,
+): Promise<ResendOtpResult> {
   const email = normalizeEmail(input.email);
 
   const user = await db.user.findUnique({
@@ -504,7 +607,11 @@ export async function resendOtp(input: ResendOtpInput): Promise<ResendOtpResult>
   });
 
   if (!user) {
-    throw new AuthServiceError("No account found for this email.", 404, "USER_NOT_FOUND");
+    throw new AuthServiceError(
+      "No account found for this email.",
+      404,
+      "USER_NOT_FOUND",
+    );
   }
 
   if (user.emailVerified) {
@@ -543,15 +650,33 @@ export async function resendOtp(input: ResendOtpInput): Promise<ResendOtpResult>
     });
   });
 
-  await sendOtpEmail({
-    to: {
-      email: user.email,
-      name: user.fullName,
-    },
-    otpCode,
-    expiresAt: otpExpiresAt,
-    message: "Use this new code to finish verifying your RentMart account.",
-  });
+  try {
+    await sendOtpEmail({
+      to: {
+        email: user.email,
+        name: user.fullName,
+      },
+      otpCode,
+      expiresAt: otpExpiresAt,
+      message: "Use this new code to finish verifying your RentMart account.",
+    });
+  } catch (error) {
+    logServiceError({
+      service: "auth.service",
+      action: "resendOtp.sendOtpEmail",
+      error,
+      context: {
+        userId: user.id,
+        email: maskEmailForLogs(user.email),
+      },
+    });
+
+    throw new AuthServiceError(
+      "Unable to resend verification email. If you are using Resend test sender onboarding@resend.dev, switch to RESEND_FROM_EMAIL on a verified domain.",
+      502,
+      "EMAIL_SEND_FAILED",
+    );
+  }
 
   return {
     user,
@@ -582,7 +707,15 @@ export async function startPhoneVerificationForUser(
   try {
     await startSmsVerification(phone);
   } catch (error) {
-    console.error("Twilio start verification error:", error);
+    logServiceError({
+      service: "auth.service",
+      action: "startPhoneVerificationForUser.startSmsVerification",
+      error,
+      context: {
+        userId,
+        phone,
+      },
+    });
     throw new AuthServiceError(
       "Unable to send phone verification code right now.",
       502,
@@ -608,7 +741,10 @@ export async function verifyPhoneNumberForUser(
   const phone = normalizePhoneNumber(input.phone);
 
   try {
-    const verificationCheck = await checkSmsVerification(phone, input.code.trim());
+    const verificationCheck = await checkSmsVerification(
+      phone,
+      input.code.trim(),
+    );
 
     if (verificationCheck.status !== "approved") {
       throw new AuthServiceError(
@@ -622,7 +758,15 @@ export async function verifyPhoneNumberForUser(
       throw error;
     }
 
-    console.error("Twilio verify check error:", error);
+    logServiceError({
+      service: "auth.service",
+      action: "verifyPhoneNumberForUser.checkSmsVerification",
+      error,
+      context: {
+        userId,
+        phone,
+      },
+    });
     throw new AuthServiceError(
       "Unable to verify this phone number right now.",
       502,
@@ -650,12 +794,21 @@ export async function verifyPhoneNumberForUser(
       },
       subject: "Your phone number is verified",
       title: "Phone verification complete",
-      message: "Your RentMart account can now use booking flows that require a verified phone number.",
+      message:
+        "Your RentMart account can now use booking flows that require a verified phone number.",
       ctaLabel: "Review Settings",
       ctaHref: "/dashboard/settings",
     });
   } catch (error) {
-    console.error("Phone verified email error:", error);
+    logServiceError({
+      service: "auth.service",
+      action: "verifyPhoneNumberForUser.sendAccountEventEmail",
+      error,
+      context: {
+        userId: updatedUser.id,
+        email: maskEmailForLogs(updatedUser.email),
+      },
+    });
   }
 
   return {
@@ -698,12 +851,21 @@ export async function updateCurrentUserProfile(
       },
       subject: "Your address was updated",
       title: "Account address updated",
-      message: "We saved your new address on RentMart. If you did not make this change, contact support immediately.",
+      message:
+        "We saved your new address on RentMart. If you did not make this change, contact support immediately.",
       ctaLabel: "Review Settings",
       ctaHref: "/dashboard/settings",
     });
   } catch (error) {
-    console.error("Address updated email error:", error);
+    logServiceError({
+      service: "auth.service",
+      action: "updateCurrentUserProfile.sendAccountEventEmail",
+      error,
+      context: {
+        userId: updatedUser.id,
+        email: maskEmailForLogs(updatedUser.email),
+      },
+    });
   }
 
   return {
@@ -756,12 +918,21 @@ export async function updateCurrentUserPassword(
       },
       subject: "Your password was changed",
       title: "Password updated",
-      message: "Your RentMart password was updated successfully. If this was not you, secure your account immediately.",
+      message:
+        "Your RentMart password was updated successfully. If this was not you, secure your account immediately.",
       ctaLabel: "Review Settings",
       ctaHref: "/dashboard/settings",
     });
   } catch (error) {
-    console.error("Password updated email error:", error);
+    logServiceError({
+      service: "auth.service",
+      action: "updateCurrentUserPassword.sendAccountEventEmail",
+      error,
+      context: {
+        userId: user.id,
+        email: maskEmailForLogs(user.email),
+      },
+    });
   }
 
   return {
@@ -801,11 +972,15 @@ export async function listUsersForAdmin(
   }
 
   if (input.verification === "VERIFIED") {
-    filters.push(Prisma.sql`u."emailVerified" = true AND u."phoneVerified" = true`);
+    filters.push(
+      Prisma.sql`u."emailVerified" = true AND u."phoneVerified" = true`,
+    );
   }
 
   if (input.verification === "ACTION_REQUIRED") {
-    filters.push(Prisma.sql`u."emailVerified" = false OR u."phoneVerified" = false`);
+    filters.push(
+      Prisma.sql`u."emailVerified" = false OR u."phoneVerified" = false`,
+    );
   }
 
   const whereClause =
@@ -854,7 +1029,9 @@ export async function listUsersForAdmin(
   return rows.map(mapAdminUserRow);
 }
 
-export async function getDashboardMetrics(userId: string): Promise<DashboardMetrics> {
+export async function getDashboardMetrics(
+  userId: string,
+): Promise<DashboardMetrics> {
   const user = await db.user.findUnique({
     where: { id: userId },
     select: { id: true, role: true },

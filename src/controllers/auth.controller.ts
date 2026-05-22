@@ -15,6 +15,21 @@ import {
   verifyPhoneNumberForUser,
 } from "../services/auth.service.js";
 
+function maskEmailForLogs(email: unknown) {
+  if (typeof email !== "string" || !email.includes("@")) {
+    return null;
+  }
+
+  const [localPartRaw, domain] = email.split("@");
+  const localPart = localPartRaw ?? "";
+  const visibleLocal =
+    localPart.length <= 2
+      ? `${localPart[0] ?? "*"}*`
+      : `${localPart.slice(0, 2)}***`;
+
+  return `${visibleLocal}@${domain}`;
+}
+
 function isProduction() {
   return process.env.NODE_ENV === "production";
 }
@@ -85,13 +100,33 @@ function handleAuthError(res: Response, error: unknown) {
 
 export async function signUpController(req: Request, res: Response) {
   try {
+    console.log("[auth.controller] Signup payload validated, entering controller", {
+      path: req.originalUrl,
+      ip: req.ip,
+      email: maskEmailForLogs(req.body?.email),
+      role: req.body?.role ?? null,
+      timestamp: new Date().toISOString(),
+    });
+
     const result = await registerUser(req.body);
+
+    console.log("[auth.controller] Signup completed successfully", {
+      userId: result.user.id,
+      email: maskEmailForLogs(result.user.email),
+      otpExpiresAt: result.otpExpiresAt.toISOString(),
+      timestamp: new Date().toISOString(),
+    });
 
     return sendSuccess(res, 201, "Account created successfully. Verify your OTP.", {
       user: result.user,
       otpExpiresAt: result.otpExpiresAt,
     });
   } catch (error) {
+    console.error("[auth.controller] Signup failed", {
+      email: maskEmailForLogs(req.body?.email),
+      error: error instanceof Error ? error.message : String(error),
+      timestamp: new Date().toISOString(),
+    });
     return handleAuthError(res, error);
   }
 }
