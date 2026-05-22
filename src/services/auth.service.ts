@@ -6,23 +6,23 @@ import {
   OtpPurpose,
   Prisma,
   UserRole,
-} from "../generated/prisma/client";
-import { AUTH_TOKEN_ISSUER } from "../configs/auth.config";
+} from "@prisma/client";
+import { AUTH_TOKEN_ISSUER } from "../configs/auth.config.js";
 import {
   createOtpHash as buildOtpHash,
   createPasswordHashForAuth as buildPasswordHash,
   generateAuthOtp as buildAuthOtp,
   validateOtp as compareAuthOtp,
   validatePassword as compareAuthPassword,
-} from "../lib/auth-crypto";
-import { db } from "../lib/db";
-import { sendAccountEventEmail, sendOtpEmail } from "../lib/mailer";
-import { checkSmsVerification, startSmsVerification } from "../lib/twilio";
+} from "../lib/auth-crypto.js";
+import { db } from "../lib/db.js";
+import { sendAccountEventEmail, sendOtpEmail } from "../lib/mailer.js";
+import { checkSmsVerification, startSmsVerification } from "../lib/twilio.js";
 import {
   createAddressUpdatedNotification,
   createPasswordUpdatedNotification,
   createPhoneVerifiedNotification,
-} from "./notification.service";
+} from "./notification.service.js";
 import type {
   ResendOtpInput,
   SignInInput,
@@ -33,7 +33,7 @@ import type {
   VerifyOtpInput,
   VerifyPhoneInput,
   ListUsersQueryInput,
-} from "../validators/auth.schema";
+} from "../validators/auth.schema.js";
 
 const OTP_LENGTH = 6;
 const OTP_EXPIRY_MINUTES = 10;

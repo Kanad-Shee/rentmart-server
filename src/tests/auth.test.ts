@@ -7,8 +7,8 @@ import {
   generateAuthOtp,
   validateOtp,
   validatePassword,
-} from "../lib/auth-crypto";
-import { validateRequest } from "../middlewares/validate.middleware";
+} from "../lib/auth-crypto.js";
+import { validateRequest } from "../middlewares/validate.middleware.js";
 import {
   listUsersQuerySchema,
   resendOtpSchema,
@@ -17,7 +17,7 @@ import {
   updatePasswordSchema,
   updateProfileSchema,
   verifyOtpSchema,
-} from "../validators/auth.schema";
+} from "../validators/auth.schema.js";
 
 const validSignUpPayload = {
   role: "owner",

@@ -1,13 +1,13 @@
 import { Router } from "express";
-import { UserRole } from "../generated/prisma/client";
-import { authenticateUser, requireRole } from "../middlewares/auth.middleware";
-import { validateRequest } from "../middlewares/validate.middleware";
+import { UserRole } from "@prisma/client";
+import { authenticateUser, requireRole } from "../middlewares/auth.middleware.js";
+import { validateRequest } from "../middlewares/validate.middleware.js";
 import {
   addWishlistItemController,
   getMyWishlistController,
   removeWishlistItemController,
-} from "../controllers/wishlist.controller";
-import { wishlistEquipmentParamsSchema } from "../validators/wishlist.schema";
+} from "../controllers/wishlist.controller.js";
+import { wishlistEquipmentParamsSchema } from "../validators/wishlist.schema.js";
 
 const wishlistRouter = Router();
 

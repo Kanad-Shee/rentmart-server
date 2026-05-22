@@ -4,8 +4,8 @@ import {
   getMyWishlistListings,
   removeWishlistItem,
   WishlistServiceError,
-} from "../services/wishlist.service";
-import type { WishlistEquipmentParams } from "../validators/wishlist.schema";
+} from "../services/wishlist.service.js";
+import type { WishlistEquipmentParams } from "../validators/wishlist.schema.js";
 
 function sendSuccess<T>(res: Response, status: number, message: string, data: T) {
   return res.status(status).json({

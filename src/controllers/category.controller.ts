@@ -6,8 +6,8 @@ import {
   getCategory,
   getCategories,
   updateCategory,
-} from "../services/category.service";
-import type { CreateCategoryInput, UpdateCategoryInput } from "../validators/category.schema";
+} from "../services/category.service.js";
+import type { CreateCategoryInput, UpdateCategoryInput } from "../validators/category.schema.js";
 
 function sendSuccess<T>(res: Response, status: number, message: string, data: T) {
   return res.status(status).json({

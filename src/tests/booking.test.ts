@@ -1,13 +1,13 @@
 /// <reference types="bun-types" />
 
 import { describe, expect, it } from "bun:test";
-import { validateImageFiles } from "../lib/equipment-image-validation";
+import { validateImageFiles } from "../lib/equipment-image-validation.js";
 import {
   canOwnerCompleteBookingStatus,
   canOwnerDisputeBookingStatus,
   hasBookingWindowEnded,
-} from "../lib/booking-state";
-import { disputeBookingSchema } from "../validators/booking.schema";
+} from "../lib/booking-state.js";
+import { disputeBookingSchema } from "../validators/booking.schema.js";
 
 function createMockFile(size: number, mimetype = "image/jpeg"): Express.Multer.File {
   return {

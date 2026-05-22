@@ -1,5 +1,5 @@
 import type { NextFunction, Request, RequestHandler, Response } from "express";
-import { incrementRateLimitCounter } from "../lib/redis";
+import { incrementRateLimitCounter } from "../lib/redis.js";
 
 type RateLimitOptions = {
   keyPrefix: string;

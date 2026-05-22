@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { UserRole } from "../generated/prisma/client";
-import { uploadOptionalBookingDisputeImages } from "../middlewares/image-upload.middleware";
+import { UserRole } from "@prisma/client";
+import { uploadOptionalBookingDisputeImages } from "../middlewares/image-upload.middleware.js";
 import {
   approveBookingController,
   completeBookingController,
@@ -15,13 +15,13 @@ import {
   rejectBookingController,
   startBookingController,
   verifyBookingPaymentController,
-} from "../controllers/booking.controller";
+} from "../controllers/booking.controller.js";
 import {
   authenticateUser,
   requireRole,
   requireVerifiedMobile,
-} from "../middlewares/auth.middleware";
-import { validateRequest } from "../middlewares/validate.middleware";
+} from "../middlewares/auth.middleware.js";
+import { validateRequest } from "../middlewares/validate.middleware.js";
 import {
   bookingParamsSchema,
   createBookingPaymentOrderSchema,
@@ -30,7 +30,7 @@ import {
   manualSettlementSchema,
   rejectBookingSchema,
   verifyBookingPaymentSchema,
-} from "../validators/booking.schema";
+} from "../validators/booking.schema.js";
 
 const bookingRouter = Router();
 

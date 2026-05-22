@@ -1,4 +1,4 @@
-import type { BookingStatus } from "../generated/prisma/client";
+import type { BookingStatus } from "@prisma/client";
 
 function formatDateOnly(date: Date) {
   return date.toISOString().slice(0, 10);

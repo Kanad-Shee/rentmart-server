@@ -1,10 +1,10 @@
 import { Router } from "express";
-import { UserRole } from "../generated/prisma/client";
+import { UserRole } from "@prisma/client";
 import {
   cashfreeWebhookController,
   getAdminCashfreeWebhookEventsController,
-} from "../controllers/payment.controller";
-import { authenticateUser, requireRole } from "../middlewares/auth.middleware";
+} from "../controllers/payment.controller.js";
+import { authenticateUser, requireRole } from "../middlewares/auth.middleware.js";
 
 const paymentRouter = Router();
 

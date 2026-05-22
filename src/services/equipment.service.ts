@@ -1,17 +1,28 @@
-import { Prisma, UserRole } from "../generated/prisma/client";
-import { EQUIPMENT_IMAGE_LIMITS, type EquipmentStatusValue } from "../configs/equipment.config";
-import { db } from "../lib/db";
-import { deleteCloudinaryImage, uploadEquipmentImage, uploadReviewImage } from "../lib/cloudinary";
+import { Prisma, UserRole } from "@prisma/client";
+import {
+  EQUIPMENT_IMAGE_LIMITS,
+  type EquipmentStatusValue,
+} from "../configs/equipment.config.js";
+import { db } from "../lib/db.js";
+import {
+  deleteCloudinaryImage,
+  uploadEquipmentImage,
+  uploadReviewImage,
+} from "../lib/cloudinary.js";
 import {
   autocompleteEquipmentAddresses,
   geocodeEquipmentAddress,
   geocodeEquipmentPlaceId,
-} from "../lib/mapbox";
+} from "../lib/mapbox.js";
 import {
   createEquipmentApprovedNotification,
   createEquipmentRejectedNotification,
-} from "./notification.service";
-import type { EquipmentReviewSummary, EquipmentReviewViewerState, SafeEquipment } from "../types/equipment";
+} from "./notification.service.js";
+import type {
+  EquipmentReviewSummary,
+  EquipmentReviewViewerState,
+  SafeEquipment,
+} from "../types/equipment.js";
 import type {
   CreateEquipmentInput,
   CreateDraftEquipmentInput,
@@ -19,7 +30,7 @@ import type {
   RejectEquipmentInput,
   UpdateEquipmentReviewInput,
   UpdateOwnerEquipmentInput,
-} from "../validators/equipment.schema";
+} from "../validators/equipment.schema.js";
 
 type CategoryRow = {
   id: string;
@@ -198,7 +209,9 @@ function mapEquipmentReview(review: {
     createdAt: review.createdAt,
     updatedAt: review.updatedAt,
     renter: review.renter,
-    images: [...review.images].sort((left, right) => left.position - right.position),
+    images: [...review.images].sort(
+      (left, right) => left.position - right.position,
+    ),
   };
 }
 
@@ -238,7 +251,8 @@ async function buildEquipmentReviewViewerState(
       isLoggedIn: false,
       canReview: false,
       code: "NOT_AUTHENTICATED",
-      message: "Sign in as a renter to write a review after completing a booking.",
+      message:
+        "Sign in as a renter to write a review after completing a booking.",
       review: null,
     };
   }
@@ -337,7 +351,9 @@ async function attachReviewDetails(
   const averageRating =
     reviewCount > 0
       ? Math.round(
-          (reviews.reduce((sum, review) => sum + review.rating, 0) / reviewCount) * 10,
+          (reviews.reduce((sum, review) => sum + review.rating, 0) /
+            reviewCount) *
+            10,
         ) / 10
       : null;
 
@@ -346,7 +362,10 @@ async function attachReviewDetails(
     averageRating,
     reviewCount,
     reviews,
-    viewerReviewState: await buildEquipmentReviewViewerState(equipment.id, renterId),
+    viewerReviewState: await buildEquipmentReviewViewerState(
+      equipment.id,
+      renterId,
+    ),
   };
 }
 
@@ -955,7 +974,10 @@ export async function getPendingEquipmentListings() {
   );
 }
 
-export async function getFeaturedEquipmentListings(limit = 4, renterId?: string) {
+export async function getFeaturedEquipmentListings(
+  limit = 4,
+  renterId?: string,
+) {
   const equipmentRows = await db.$queryRaw<EquipmentRow[]>(Prisma.sql`
     SELECT
       e."id",
@@ -1010,12 +1032,20 @@ export async function getFeaturedEquipmentListings(limit = 4, renterId?: string)
   );
 }
 
-export async function getPublicEquipmentListings(categoryId?: string, renterId?: string) {
-  const rows = await queryPublicEquipmentByCategory(categoryId?.trim() || undefined);
+export async function getPublicEquipmentListings(
+  categoryId?: string,
+  renterId?: string,
+) {
+  const rows = await queryPublicEquipmentByCategory(
+    categoryId?.trim() || undefined,
+  );
   const equipmentIds = rows.map((row) => row.id);
   const imageRows = await queryEquipmentImagesByIds(equipmentIds);
   const imagesByEquipmentId = groupImagesByEquipmentId(imageRows);
-  const wishlistedIds = await getWishlistedEquipmentIdSet(renterId, equipmentIds);
+  const wishlistedIds = await getWishlistedEquipmentIdSet(
+    renterId,
+    equipmentIds,
+  );
 
   return rows.map((row) =>
     mapRowToPublicEquipment(
@@ -1026,7 +1056,10 @@ export async function getPublicEquipmentListings(categoryId?: string, renterId?:
   );
 }
 
-export async function getPublicEquipmentListingById(equipmentId: string, renterId?: string) {
+export async function getPublicEquipmentListingById(
+  equipmentId: string,
+  renterId?: string,
+) {
   const equipment = await queryEquipmentById(equipmentId);
 
   if (!equipment || equipment.status !== "ACTIVE") {
@@ -1038,12 +1071,21 @@ export async function getPublicEquipmentListingById(equipmentId: string, renterI
   }
 
   const imageRows = await queryEquipmentImagesByIds([equipmentId]);
-  const wishlistedIds = await getWishlistedEquipmentIdSet(renterId, [equipmentId]);
-  const listing = mapRowToPublicEquipment(equipment, imageRows, wishlistedIds.has(equipmentId));
+  const wishlistedIds = await getWishlistedEquipmentIdSet(renterId, [
+    equipmentId,
+  ]);
+  const listing = mapRowToPublicEquipment(
+    equipment,
+    imageRows,
+    wishlistedIds.has(equipmentId),
+  );
   return attachReviewDetails(listing, renterId);
 }
 
-export async function getEquipmentReviewDetails(equipmentId: string, renterId?: string) {
+export async function getEquipmentReviewDetails(
+  equipmentId: string,
+  renterId?: string,
+) {
   const equipment = await queryEquipmentById(equipmentId);
 
   if (!equipment || equipment.status !== "ACTIVE") {
@@ -1054,13 +1096,18 @@ export async function getEquipmentReviewDetails(equipmentId: string, renterId?: 
     );
   }
 
-  const viewerReviewState = await buildEquipmentReviewViewerState(equipmentId, renterId);
+  const viewerReviewState = await buildEquipmentReviewViewerState(
+    equipmentId,
+    renterId,
+  );
   const reviews = await queryEquipmentReviews(equipmentId);
   const reviewCount = reviews.length;
   const averageRating =
     reviewCount > 0
       ? Math.round(
-          (reviews.reduce((sum, review) => sum + review.rating, 0) / reviewCount) * 10,
+          (reviews.reduce((sum, review) => sum + review.rating, 0) /
+            reviewCount) *
+            10,
         ) / 10
       : null;
 

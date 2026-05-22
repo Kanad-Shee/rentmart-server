@@ -5,6 +5,8 @@
     "declaration": false,
     "emitDeclarationOnly": false,
     "allowImportingTsExtensions": false,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "outDir": "./dist"
   },
   "exclude": ["node_modules", "dist", "prisma.config.ts", "src/tests"]

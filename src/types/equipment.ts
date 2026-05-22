@@ -1,5 +1,5 @@
-import type { EquipmentStatusValue } from "../configs/equipment.config";
-import type { SafeCategory } from "./category";
+import type { EquipmentStatusValue } from "../configs/equipment.config.js";
+import type { SafeCategory } from "./category.js";
 
 export type EquipmentImageSummary = {
   id: string;

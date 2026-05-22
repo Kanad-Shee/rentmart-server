@@ -1,14 +1,14 @@
 /// <reference types="bun-types" />
 
 import { describe, expect, it } from "bun:test";
-import { validateImageFiles } from "../lib/equipment-image-validation";
+import { validateImageFiles } from "../lib/equipment-image-validation.js";
 import {
   createEquipmentReviewSchema,
   createEquipmentSchema,
   geocodeEquipmentSchema,
   rejectEquipmentSchema,
   updateEquipmentReviewSchema,
-} from "../validators/equipment.schema";
+} from "../validators/equipment.schema.js";
 
 const validEquipmentPayload = {
   title: "Excavator 320",

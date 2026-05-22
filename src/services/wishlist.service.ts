@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { Prisma } from "../generated/prisma/client";
-import { db } from "../lib/db";
-import type { SafeEquipment } from "../types/equipment";
+import { Prisma } from "@prisma/client";
+import { db } from "../lib/db.js";
+import type { SafeEquipment } from "../types/equipment.js";
 
 type EquipmentRow = {
   id: string;

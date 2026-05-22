@@ -1,8 +1,8 @@
 /// <reference types="bun-types" />
 
 import { describe, expect, it } from "bun:test";
-import { validateImageFiles } from "../lib/equipment-image-validation";
-import { createCategorySchema } from "../validators/category.schema";
+import { validateImageFiles } from "../lib/equipment-image-validation.js";
+import { createCategorySchema } from "../validators/category.schema.js";
 
 function createMockFile(size: number, mimetype = "image/jpeg"): Express.Multer.File {
   return {

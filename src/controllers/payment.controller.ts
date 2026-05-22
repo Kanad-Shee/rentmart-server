@@ -3,7 +3,7 @@ import {
   BookingServiceError,
   getAdminCashfreeWebhookEvents,
   processCashfreeWebhook,
-} from "../services/booking.service";
+} from "../services/booking.service.js";
 
 function sendError(res: Response, status: number, message: string, errors?: unknown) {
   return res.status(status).json({

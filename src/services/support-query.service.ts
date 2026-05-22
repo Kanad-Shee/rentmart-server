@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { Prisma, UserRole } from "../generated/prisma/client";
-import { db } from "../lib/db";
-import type { CreateSupportQueryInput } from "../validators/support-query.schema";
+import { Prisma, UserRole } from "@prisma/client";
+import { db } from "../lib/db.js";
+import type { CreateSupportQueryInput } from "../validators/support-query.schema.js";
 
 export type SupportQueryListItem = {
   id: string;
@@ -73,7 +73,11 @@ export async function createSupportQuery(
   });
 
   if (!user) {
-    throw new SupportQueryServiceError("User not found.", 404, "USER_NOT_FOUND");
+    throw new SupportQueryServiceError(
+      "User not found.",
+      404,
+      "USER_NOT_FOUND",
+    );
   }
 
   if (user.role !== UserRole.OWNER && user.role !== UserRole.RENTER) {

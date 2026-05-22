@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { Prisma } from "../generated/prisma/client";
-import { db } from "../lib/db";
-import type { NotificationType, SafeNotification } from "../types/notification";
+import { Prisma } from "@prisma/client";
+import { db } from "../lib/db.js";
+import type { NotificationType, SafeNotification } from "../types/notification.js";
 
 type NotificationRow = {
   id: string;

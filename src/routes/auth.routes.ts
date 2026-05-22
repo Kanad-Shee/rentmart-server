@@ -1,13 +1,13 @@
 import { Router } from "express";
-import { UserRole } from "../generated/prisma/client";
+import { UserRole } from "@prisma/client";
 import {
   AUTH_RATE_LIMITS,
   getBodyEmailRateLimitKey,
   getIpRateLimitKey,
-} from "../configs/rate-limit.config";
-import { authenticateUser, requireRole } from "../middlewares/auth.middleware";
-import { createRateLimiter } from "../middlewares/rate-limit.middleware";
-import { validateRequest } from "../middlewares/validate.middleware";
+} from "../configs/rate-limit.config.js";
+import { authenticateUser, requireRole } from "../middlewares/auth.middleware.js";
+import { createRateLimiter } from "../middlewares/rate-limit.middleware.js";
+import { validateRequest } from "../middlewares/validate.middleware.js";
 import {
   dashboardMetricsController,
   listUsersController,
@@ -21,7 +21,7 @@ import {
   updateProfileController,
   verifyOtpController,
   verifyPhoneController,
-} from "../controllers/auth.controller";
+} from "../controllers/auth.controller.js";
 import {
   resendOtpSchema,
   signInSchema,
@@ -32,7 +32,7 @@ import {
   updateProfileSchema,
   verifyOtpSchema,
   verifyPhoneSchema,
-} from "../validators/auth.schema";
+} from "../validators/auth.schema.js";
 
 const authRouter = Router();
 
@@ -56,21 +56,41 @@ const resendOtpRateLimit = createRateLimiter({
   getIdentifier: getBodyEmailRateLimitKey,
 });
 
-authRouter.post("/signup", signupRateLimit, validateRequest(signUpSchema), signUpController);
-authRouter.post("/signin", signInRateLimit, validateRequest(signInSchema), signInController);
-authRouter.post("/verify-otp", verifyOtpRateLimit, validateRequest(verifyOtpSchema), verifyOtpController);
-authRouter.post("/resend-otp", resendOtpRateLimit, validateRequest(resendOtpSchema), resendOtpController);
+authRouter.post(
+  "/signup",
+  signupRateLimit,
+  validateRequest(signUpSchema),
+  signUpController,
+);
+authRouter.post(
+  "/signin",
+  signInRateLimit,
+  validateRequest(signInSchema),
+  signInController,
+);
+authRouter.post(
+  "/verify-otp",
+  verifyOtpRateLimit,
+  validateRequest(verifyOtpSchema),
+  verifyOtpController,
+);
+authRouter.post(
+  "/resend-otp",
+  resendOtpRateLimit,
+  validateRequest(resendOtpSchema),
+  resendOtpController,
+);
 authRouter.post(
   "/phone/start",
   authenticateUser,
   validateRequest(startPhoneVerificationSchema),
-  startPhoneVerificationController
+  startPhoneVerificationController,
 );
 authRouter.post(
   "/phone/verify",
   authenticateUser,
   validateRequest(verifyPhoneSchema),
-  verifyPhoneController
+  verifyPhoneController,
 );
 authRouter.patch(
   "/profile",

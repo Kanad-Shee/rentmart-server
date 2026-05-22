@@ -1,13 +1,13 @@
 import cookieParser from "cookie-parser";
 import express, { type Request, type Response } from "express";
-import { authRouter } from "./routes/auth.routes";
-import { bookingRouter } from "./routes/booking.routes";
-import { categoryRouter } from "./routes/category.routes";
-import { equipmentRouter } from "./routes/equipment.routes";
-import { notificationRouter } from "./routes/notification.routes";
-import { paymentRouter } from "./routes/payment.routes";
-import { supportQueryRouter } from "./routes/support-query.routes";
-import { wishlistRouter } from "./routes/wishlist.routes";
+import { authRouter } from "./routes/auth.routes.js";
+import { bookingRouter } from "./routes/booking.routes.js";
+import { categoryRouter } from "./routes/category.routes.js";
+import { equipmentRouter } from "./routes/equipment.routes.js";
+import { notificationRouter } from "./routes/notification.routes.js";
+import { paymentRouter } from "./routes/payment.routes.js";
+import { supportQueryRouter } from "./routes/support-query.routes.js";
+import { wishlistRouter } from "./routes/wishlist.routes.js";
 
 const app = express();
 const port = 8080;

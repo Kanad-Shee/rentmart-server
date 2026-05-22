@@ -4,12 +4,12 @@ import {
   type DepositRefundStatus,
   type FinancialStatus,
   type OwnerPayoutStatus,
-} from "../generated/prisma/client";
-import { db } from "../lib/db";
+} from "@prisma/client";
+import { db } from "../lib/db.js";
 import {
   canOwnerCompleteBookingStatus,
   canOwnerDisputeBookingStatus,
-} from "../lib/booking-state";
+} from "../lib/booking-state.js";
 import {
   BOOKING_DAMAGE_WAIVER_FEE,
   BOOKING_DISPUTE_IMAGE_LIMITS,
@@ -20,9 +20,9 @@ import {
   BOOKING_SECURITY_DEPOSIT_MAX,
   BOOKING_SECURITY_DEPOSIT_MIN,
   BOOKING_SECURITY_DEPOSIT_RATE,
-} from "../configs/booking.config";
-import { sendBookingEventEmail } from "../lib/mailer";
-import { deleteCloudinaryImage, uploadBookingDisputeImage } from "../lib/cloudinary";
+} from "../configs/booking.config.js";
+import { sendBookingEventEmail } from "../lib/mailer.js";
+import { deleteCloudinaryImage, uploadBookingDisputeImage } from "../lib/cloudinary.js";
 import {
   CashfreeApiError,
   createCashfreeOrder,
@@ -31,9 +31,9 @@ import {
   getCashfreePaymentsForOrder,
   toPaise,
   verifyCashfreeWebhookSignature,
-} from "../lib/cashfree";
-import type { BookingPaymentOrder, SafeBooking } from "../types/booking";
-import type { AdminWebhookEvent } from "../types/payment";
+} from "../lib/cashfree.js";
+import type { BookingPaymentOrder, SafeBooking } from "../types/booking.js";
+import type { AdminWebhookEvent } from "../types/payment.js";
 import {
   createBookingApprovedNotification,
   createBookingCancelledNotifications,
@@ -46,13 +46,13 @@ import {
   createBookingRequestSubmittedNotification,
   createBookingStartedNotification,
   createRenterPaymentConfirmedNotification,
-} from "./notification.service";
+} from "./notification.service.js";
 import type {
   CreateBookingInput,
   DisputeBookingInput,
   RejectBookingInput,
   VerifyBookingPaymentInput,
-} from "../validators/booking.schema";
+} from "../validators/booking.schema.js";
 
 const overlapStatuses: BookingStatus[] = [
   "PENDING_OWNER_APPROVAL",

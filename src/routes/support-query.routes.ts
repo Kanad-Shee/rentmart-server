@@ -1,13 +1,13 @@
 import { Router } from "express";
-import { UserRole } from "../generated/prisma/client";
-import { authenticateUser, requireRole } from "../middlewares/auth.middleware";
-import { validateRequest } from "../middlewares/validate.middleware";
+import { UserRole } from "@prisma/client";
+import { authenticateUser, requireRole } from "../middlewares/auth.middleware.js";
+import { validateRequest } from "../middlewares/validate.middleware.js";
 import {
   createSupportQueryController,
   listSupportQueriesController,
   resolveSupportQueryController,
-} from "../controllers/support-query.controller";
-import { createSupportQuerySchema } from "../validators/support-query.schema";
+} from "../controllers/support-query.controller.js";
+import { createSupportQuerySchema } from "../validators/support-query.schema.js";
 
 const supportQueryRouter = Router();
 

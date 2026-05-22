@@ -1,7 +1,7 @@
 /// <reference types="bun-types" />
 
 import { describe, expect, it } from "bun:test";
-import { createRateLimiter } from "../middlewares/rate-limit.middleware";
+import { createRateLimiter } from "../middlewares/rate-limit.middleware.js";
 
 function createMockResponse() {
   const headers = new Map<string, string>();

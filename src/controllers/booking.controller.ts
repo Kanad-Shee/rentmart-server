@@ -14,7 +14,7 @@ import {
   markOwnerPayoutPaid,
   rejectBookingRequest,
   verifyCompletedBookingPayment,
-} from "../services/booking.service";
+} from "../services/booking.service.js";
 import type {
   BookingParams,
   CreateBookingInput,
@@ -22,7 +22,7 @@ import type {
   ManualSettlementInput,
   RejectBookingInput,
   VerifyBookingPaymentInput,
-} from "../validators/booking.schema";
+} from "../validators/booking.schema.js";
 
 function sendSuccess<T>(res: Response, status: number, message: string, data: T) {
   return res.status(status).json({

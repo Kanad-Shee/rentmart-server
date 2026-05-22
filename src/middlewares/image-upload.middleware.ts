@@ -1,10 +1,10 @@
 import multer from "multer";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
-import type { ImageValidationOptions } from "../lib/equipment-image-validation";
-import { validateImageFiles } from "../lib/equipment-image-validation";
-import { CATEGORY_IMAGE_LIMITS } from "../configs/category.config";
-import { BOOKING_DISPUTE_IMAGE_LIMITS } from "../configs/booking.config";
-import { EQUIPMENT_IMAGE_LIMITS, REVIEW_IMAGE_LIMITS } from "../configs/equipment.config";
+import type { ImageValidationOptions } from "../lib/equipment-image-validation.js";
+import { validateImageFiles } from "../lib/equipment-image-validation.js";
+import { CATEGORY_IMAGE_LIMITS } from "../configs/category.config.js";
+import { BOOKING_DISPUTE_IMAGE_LIMITS } from "../configs/booking.config.js";
+import { EQUIPMENT_IMAGE_LIMITS, REVIEW_IMAGE_LIMITS } from "../configs/equipment.config.js";
 
 type UploadOptions = ImageValidationOptions & {
   fieldName: string;

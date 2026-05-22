@@ -4,8 +4,8 @@ import {
   listSupportQueries,
   resolveSupportQuery,
   SupportQueryServiceError,
-} from "../services/support-query.service";
-import type { CreateSupportQueryInput } from "../validators/support-query.schema";
+} from "../services/support-query.service.js";
+import type { CreateSupportQueryInput } from "../validators/support-query.schema.js";
 
 function sendSuccess<T>(res: Response, status: number, message: string, data: T) {
   return res.status(status).json({

@@ -1,8 +1,8 @@
-import { Prisma } from "../generated/prisma/client";
-import { deleteCloudinaryImage, uploadCategoryImage } from "../lib/cloudinary";
-import { db } from "../lib/db";
-import type { SafeCategory } from "../types/category";
-import type { CreateCategoryInput, UpdateCategoryInput } from "../validators/category.schema";
+import { Prisma } from "@prisma/client";
+import { deleteCloudinaryImage, uploadCategoryImage } from "../lib/cloudinary.js";
+import { db } from "../lib/db.js";
+import type { SafeCategory } from "../types/category.js";
+import type { CreateCategoryInput, UpdateCategoryInput } from "../validators/category.schema.js";
 
 type CategoryRow = {
   id: string;

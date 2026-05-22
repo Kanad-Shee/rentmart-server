@@ -4,7 +4,7 @@ import {
   markAllNotificationsAsRead,
   markNotificationAsRead,
   NotificationServiceError,
-} from "../services/notification.service";
+} from "../services/notification.service.js";
 
 function sendSuccess<T>(res: Response, status: number, message: string, data: T) {
   return res.status(status).json({

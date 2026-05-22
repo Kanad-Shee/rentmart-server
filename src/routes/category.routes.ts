@@ -1,16 +1,16 @@
 import { Router } from "express";
-import { UserRole } from "../generated/prisma/client";
-import { authenticateUser, requireRole } from "../middlewares/auth.middleware";
-import { uploadCategoryImage, uploadOptionalCategoryImage } from "../middlewares/image-upload.middleware";
-import { validateRequest } from "../middlewares/validate.middleware";
+import { UserRole } from "@prisma/client";
+import { authenticateUser, requireRole } from "../middlewares/auth.middleware.js";
+import { uploadCategoryImage, uploadOptionalCategoryImage } from "../middlewares/image-upload.middleware.js";
+import { validateRequest } from "../middlewares/validate.middleware.js";
 import {
   createCategoryController,
   deleteCategoryController,
   getCategoryController,
   listCategoriesController,
   updateCategoryController,
-} from "../controllers/category.controller";
-import { createCategorySchema, updateCategorySchema } from "../validators/category.schema";
+} from "../controllers/category.controller.js";
+import { createCategorySchema, updateCategorySchema } from "../validators/category.schema.js";
 
 const categoryRouter = Router();
 

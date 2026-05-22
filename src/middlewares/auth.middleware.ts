@@ -1,9 +1,9 @@
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import jwt, { type JwtPayload } from "jsonwebtoken";
-import { UserRole } from "../generated/prisma/client";
-import { db } from "../lib/db";
-import { AUTH_COOKIE_NAME, AUTH_TOKEN_ISSUER } from "../configs/auth.config";
-import type { AuthenticatedUser } from "../types/auth";
+import { UserRole } from "@prisma/client";
+import { db } from "../lib/db.js";
+import { AUTH_COOKIE_NAME, AUTH_TOKEN_ISSUER } from "../configs/auth.config.js";
+import type { AuthenticatedUser } from "../types/auth.js";
 
 type TokenPayload = JwtPayload & {
   sub?: string;

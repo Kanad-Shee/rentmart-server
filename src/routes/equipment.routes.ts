@@ -1,8 +1,8 @@
 import { Router } from "express";
-import { UserRole } from "../generated/prisma/client";
-import { attachOptionalUser, authenticateUser, requireRole, requireVerifiedMobile } from "../middlewares/auth.middleware";
-import { validateRequest } from "../middlewares/validate.middleware";
-import { uploadEquipmentImages, uploadOptionalEquipmentImages, uploadOptionalReviewImages } from "../middlewares/image-upload.middleware";
+import { UserRole } from "@prisma/client";
+import { attachOptionalUser, authenticateUser, requireRole, requireVerifiedMobile } from "../middlewares/auth.middleware.js";
+import { validateRequest } from "../middlewares/validate.middleware.js";
+import { uploadEquipmentImages, uploadOptionalEquipmentImages, uploadOptionalReviewImages } from "../middlewares/image-upload.middleware.js";
 import {
   addressSuggestionsController,
   approveEquipmentController,
@@ -22,7 +22,7 @@ import {
   submitOwnerEquipmentController,
   updateEquipmentReviewController,
   updateOwnerEquipmentController,
-} from "../controllers/equipment.controller";
+} from "../controllers/equipment.controller.js";
 import {
   addressSuggestionsSchema,
   createEquipmentSchema,
@@ -34,7 +34,7 @@ import {
   rejectEquipmentSchema,
   updateEquipmentReviewSchema,
   updateOwnerEquipmentSchema,
-} from "../validators/equipment.schema";
+} from "../validators/equipment.schema.js";
 
 const equipmentRouter = Router();
 

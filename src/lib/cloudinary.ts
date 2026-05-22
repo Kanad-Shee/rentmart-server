@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
-import { EQUIPMENT_CLOUDINARY_FOLDER, REVIEW_CLOUDINARY_FOLDER } from "../configs/equipment.config";
-import { CATEGORY_CLOUDINARY_FOLDER } from "../configs/category.config";
-import { BOOKING_DISPUTE_CLOUDINARY_FOLDER } from "../configs/booking.config";
+import { EQUIPMENT_CLOUDINARY_FOLDER, REVIEW_CLOUDINARY_FOLDER } from "../configs/equipment.config.js";
+import { CATEGORY_CLOUDINARY_FOLDER } from "../configs/category.config.js";
+import { BOOKING_DISPUTE_CLOUDINARY_FOLDER } from "../configs/booking.config.js";
 
 export type CloudinaryUploadResult = {
   publicId: string;

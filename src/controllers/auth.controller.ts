@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { AUTH_COOKIE_NAME } from "../configs/auth.config";
+import { AUTH_COOKIE_NAME } from "../configs/auth.config.js";
 import {
   AuthServiceError,
   getDashboardMetrics,
@@ -13,7 +13,7 @@ import {
   updateCurrentUserProfile,
   verifyOtp,
   verifyPhoneNumberForUser,
-} from "../services/auth.service";
+} from "../services/auth.service.js";
 
 function isProduction() {
   return process.env.NODE_ENV === "production";

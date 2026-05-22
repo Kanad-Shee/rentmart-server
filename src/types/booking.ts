@@ -3,7 +3,7 @@ import type {
   DepositRefundStatus,
   FinancialStatus,
   OwnerPayoutStatus,
-} from "../generated/prisma/client";
+} from "@prisma/client";
 
 export type BookingPaymentOrder = {
   bookingId: string;

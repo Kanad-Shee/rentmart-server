@@ -18,7 +18,7 @@ import {
   rejectEquipmentListing,
   updateEquipmentReview,
   updateOwnerEquipmentListing,
-} from "../services/equipment.service";
+} from "../services/equipment.service.js";
 import type {
   AddressSuggestionsInput,
   CreateEquipmentInput,
@@ -29,7 +29,7 @@ import type {
   RejectEquipmentInput,
   UpdateEquipmentReviewInput,
   UpdateOwnerEquipmentInput,
-} from "../validators/equipment.schema";
+} from "../validators/equipment.schema.js";
 
 function sendSuccess<T>(res: Response, status: number, message: string, data: T) {
   return res.status(status).json({
