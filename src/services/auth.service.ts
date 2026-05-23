@@ -840,7 +840,23 @@ export async function updateCurrentUserProfile(
 
   const nextAddress = input.address.trim();
 
+  logger.info("[auth.service] Processing profile address update", {
+    service: "auth.service",
+    action: "updateCurrentUserProfile.start",
+    userId,
+    previousAddress: user.address,
+    nextAddress,
+    timestamp: new Date().toISOString(),
+  });
+
   if (user.address === nextAddress) {
+    logger.info("[auth.service] Skipping profile update because address is unchanged", {
+      service: "auth.service",
+      action: "updateCurrentUserProfile.noop",
+      userId,
+      address: user.address,
+      timestamp: new Date().toISOString(),
+    });
     return { user };
   }
 
@@ -850,6 +866,15 @@ export async function updateCurrentUserProfile(
       address: nextAddress,
     },
     select: publicUserSelect,
+  });
+
+  logger.info("[auth.service] Profile address update committed", {
+    service: "auth.service",
+    action: "updateCurrentUserProfile.success",
+    userId: updatedUser.id,
+    address: updatedUser.address,
+    updatedAt: updatedUser.updatedAt.toISOString(),
+    timestamp: new Date().toISOString(),
   });
 
   await createAddressUpdatedNotification(db, {
@@ -1141,6 +1166,15 @@ export async function getCurrentUser(userId: string) {
   if (!user) {
     throw new AuthServiceError("User not found.", 404, "USER_NOT_FOUND");
   }
+
+  logger.info("[auth.service] Current user fetched", {
+    service: "auth.service",
+    action: "getCurrentUser",
+    userId: user.id,
+    address: user.address,
+    updatedAt: user.updatedAt.toISOString(),
+    timestamp: new Date().toISOString(),
+  });
 
   return user;
 }
