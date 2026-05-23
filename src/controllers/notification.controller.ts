@@ -6,6 +6,7 @@ import {
   markNotificationAsRead,
   NotificationServiceError,
 } from "../services/notification.service.js";
+import type { PaginationQueryInput } from "../validators/pagination.schema.js";
 
 function sendSuccess<T>(res: Response, status: number, message: string, data: T) {
   return res.status(status).json({
@@ -59,7 +60,10 @@ export async function getMyNotificationsController(req: Request, res: Response) 
       return sendError(res, 401, "Unauthorized.");
     }
 
-    const notifications = await getMyNotifications(userId);
+    const notifications = await getMyNotifications(
+      userId,
+      req.query as unknown as PaginationQueryInput,
+    );
 
     return sendSuccess(
       res,

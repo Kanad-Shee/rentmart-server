@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { paginationQuerySchema } from "./pagination.schema.js";
 
 const dateStringSchema = z
   .string({ message: "Date is required." })
@@ -79,9 +80,68 @@ export const manualSettlementSchema = z.object({
     .transform((value) => (value && value.length > 0 ? value : undefined)),
 });
 
+export const ownerBookingsQuerySchema = paginationQuerySchema.extend({
+  group: z
+    .enum([
+      "ALL",
+      "PENDING",
+      "AWAITING_PAYMENT",
+      "CONFIRMED",
+      "IN_PROGRESS",
+      "HISTORY",
+    ])
+    .optional(),
+});
+
+export const adminBookingsQuerySchema = paginationQuerySchema.extend({
+  search: z.string().trim().max(120, "Search is too long.").optional(),
+  status: z
+    .enum([
+      "ALL",
+      "PENDING_OWNER_APPROVAL",
+      "PENDING_RENTER_PAYMENT",
+      "CONFIRMED",
+      "IN_PROGRESS",
+      "COMPLETED",
+      "CANCELLED",
+      "DISPUTED",
+    ])
+    .optional(),
+  financialStatus: z
+    .enum([
+      "ALL",
+      "PAYMENT_CAPTURED",
+      "MANUAL_SETTLEMENT_PENDING",
+      "MANUAL_SETTLEMENT_COMPLETE",
+      "PAYMENT_FAILED",
+      "DISPUTED",
+      "PAYMENT_PENDING",
+      "PAYMENT_PROCESSING",
+      "NONE",
+    ])
+    .optional(),
+  ownerPayoutStatus: z.enum(["ALL", "PENDING", "PAID", "BLOCKED", "NONE"]).optional(),
+  depositRefundStatus: z
+    .enum(["ALL", "PENDING", "REFUNDED", "SKIPPED", "BLOCKED", "NONE"])
+    .optional(),
+  needsAction: z.enum(["ALL", "ONLY_ACTION"]).optional(),
+});
+
+export const adminPaymentEventsQuerySchema = paginationQuerySchema.extend({
+  search: z.string().trim().max(120, "Search is too long.").optional(),
+  eventType: z.string().trim().max(120, "Event type is too long.").optional(),
+  status: z.enum(["ALL", "processed", "unprocessed", "unmatched"]).optional(),
+  linkState: z.enum(["ALL", "LINKED", "UNLINKED"]).optional(),
+});
+
 export type CreateBookingInput = z.infer<typeof createBookingSchema>;
 export type BookingParams = z.infer<typeof bookingParamsSchema>;
 export type RejectBookingInput = z.infer<typeof rejectBookingSchema>;
 export type DisputeBookingInput = z.infer<typeof disputeBookingSchema>;
 export type VerifyBookingPaymentInput = z.infer<typeof verifyBookingPaymentSchema>;
 export type ManualSettlementInput = z.infer<typeof manualSettlementSchema>;
+export type OwnerBookingsQueryInput = z.infer<typeof ownerBookingsQuerySchema>;
+export type AdminBookingsQueryInput = z.infer<typeof adminBookingsQuerySchema>;
+export type AdminPaymentEventsQueryInput = z.infer<
+  typeof adminPaymentEventsQuerySchema
+>;

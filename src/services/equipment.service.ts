@@ -7,6 +7,11 @@ import { db } from "../lib/db.js";
 import { logServiceError } from "../lib/error-logger.js";
 import { logger } from "../lib/logger.js";
 import {
+  createPaginatedResult,
+  normalizePagination,
+  type PaginatedResult,
+} from "../lib/pagination.js";
+import {
   deleteCloudinaryImage,
   uploadEquipmentImage,
   uploadReviewImage,
@@ -28,6 +33,8 @@ import type {
 import type {
   CreateEquipmentInput,
   CreateDraftEquipmentInput,
+  OwnerEquipmentQueryInput,
+  PendingEquipmentQueryInput,
   CreateEquipmentReviewInput,
   RejectEquipmentInput,
   UpdateEquipmentReviewInput,
@@ -504,7 +511,27 @@ async function getWishlistedEquipmentIdSet(
   return new Set(rows.map((row) => row.equipmentId));
 }
 
-async function queryEquipmentByOwner(ownerId: string) {
+async function queryEquipmentByOwner(
+  ownerId: string,
+  input?: {
+    tab?: "live" | "pending" | "draft";
+    limit?: number;
+    offset?: number;
+  },
+) {
+  const tabFilter =
+    input?.tab === "live"
+      ? Prisma.sql`AND e."status" = ${"ACTIVE"}`
+      : input?.tab === "pending"
+        ? Prisma.sql`AND e."status" IN (${Prisma.join(["PENDING_VERIFICATION", "REJECTED"])})`
+        : input?.tab === "draft"
+          ? Prisma.sql`AND e."status" = ${"DRAFT"}`
+          : Prisma.empty;
+  const paginationClause =
+    typeof input?.limit === "number" && typeof input?.offset === "number"
+      ? Prisma.sql`LIMIT ${input.limit} OFFSET ${input.offset}`
+      : Prisma.empty;
+
   return db.$queryRaw<EquipmentRow[]>(Prisma.sql`
     SELECT
       e."id",
@@ -538,11 +565,52 @@ async function queryEquipmentByOwner(ownerId: string) {
     INNER JOIN "User" u ON u."id" = e."ownerId"
     INNER JOIN "Category" c ON c."id" = e."categoryId"
     WHERE e."ownerId" = ${ownerId}
+    ${tabFilter}
     ORDER BY e."createdAt" DESC
+    ${paginationClause}
   `);
 }
 
-async function queryEquipmentByStatus(status: EquipmentStatusValue) {
+async function countEquipmentByOwner(ownerId: string, tab?: "live" | "pending" | "draft") {
+  const tabFilter =
+    tab === "live"
+      ? Prisma.sql`AND e."status" = ${"ACTIVE"}`
+      : tab === "pending"
+        ? Prisma.sql`AND e."status" IN (${Prisma.join(["PENDING_VERIFICATION", "REJECTED"])})`
+        : tab === "draft"
+          ? Prisma.sql`AND e."status" = ${"DRAFT"}`
+          : Prisma.empty;
+
+  const rows = await db.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
+    SELECT COUNT(*)::bigint AS "count"
+    FROM "Equipment" e
+    WHERE e."ownerId" = ${ownerId}
+    ${tabFilter}
+  `);
+
+  return Number(rows[0]?.count ?? 0n);
+}
+
+async function queryEquipmentByStatus(
+  status: EquipmentStatusValue,
+  input?: { search?: string; limit?: number; offset?: number },
+) {
+  const searchClause = input?.search?.trim()
+    ? Prisma.sql`
+        AND (
+          e."title" ILIKE ${`%${input.search.trim()}%`}
+          OR u."fullName" ILIKE ${`%${input.search.trim()}%`}
+          OR u."email" ILIKE ${`%${input.search.trim()}%`}
+          OR c."title" ILIKE ${`%${input.search.trim()}%`}
+          OR e."normalizedAddress" ILIKE ${`%${input.search.trim()}%`}
+        )
+      `
+    : Prisma.empty;
+  const paginationClause =
+    typeof input?.limit === "number" && typeof input?.offset === "number"
+      ? Prisma.sql`LIMIT ${input.limit} OFFSET ${input.offset}`
+      : Prisma.empty;
+
   return db.$queryRaw<EquipmentRow[]>(Prisma.sql`
     SELECT
       e."id",
@@ -576,8 +644,38 @@ async function queryEquipmentByStatus(status: EquipmentStatusValue) {
     INNER JOIN "User" u ON u."id" = e."ownerId"
     INNER JOIN "Category" c ON c."id" = e."categoryId"
     WHERE e."status" = ${status}
+    ${searchClause}
     ORDER BY e."createdAt" DESC
+    ${paginationClause}
   `);
+}
+
+async function countEquipmentByStatus(
+  status: EquipmentStatusValue,
+  search?: string,
+) {
+  const searchClause = search?.trim()
+    ? Prisma.sql`
+        AND (
+          e."title" ILIKE ${`%${search.trim()}%`}
+          OR u."fullName" ILIKE ${`%${search.trim()}%`}
+          OR u."email" ILIKE ${`%${search.trim()}%`}
+          OR c."title" ILIKE ${`%${search.trim()}%`}
+          OR e."normalizedAddress" ILIKE ${`%${search.trim()}%`}
+        )
+      `
+    : Prisma.empty;
+
+  const rows = await db.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
+    SELECT COUNT(*)::bigint AS "count"
+    FROM "Equipment" e
+    INNER JOIN "User" u ON u."id" = e."ownerId"
+    INNER JOIN "Category" c ON c."id" = e."categoryId"
+    WHERE e."status" = ${status}
+    ${searchClause}
+  `);
+
+  return Number(rows[0]?.count ?? 0n);
 }
 
 async function queryPublicEquipmentByCategory(categoryId?: string) {
@@ -1017,27 +1115,62 @@ export async function createDraftEquipmentListing(
   }
 }
 
-export async function getOwnerEquipmentListings(ownerId: string) {
-  const equipmentRows = await queryEquipmentByOwner(ownerId);
+export async function getOwnerEquipmentListings(
+  ownerId: string,
+  input: OwnerEquipmentQueryInput,
+): Promise<PaginatedResult<SafeEquipment>> {
+  const pagination = normalizePagination(input);
+  const [equipmentRows, totalItems] = await Promise.all([
+    queryEquipmentByOwner(ownerId, {
+      tab: input.tab,
+      limit: pagination.take,
+      offset: pagination.skip,
+    }),
+    countEquipmentByOwner(ownerId, input.tab),
+  ]);
   const imageRows = await queryEquipmentImagesByIds(
     equipmentRows.map((row) => row.id),
   );
   const groupedImages = groupImagesByEquipmentId(imageRows);
 
-  return equipmentRows.map((row) =>
-    mapRowToPublicEquipment(row, groupedImages[row.id] ?? []),
+  return createPaginatedResult(
+    equipmentRows.map((row) =>
+      mapRowToPublicEquipment(row, groupedImages[row.id] ?? []),
+    ),
+    {
+      page: pagination.page,
+      pageSize: pagination.pageSize,
+    },
+    totalItems,
   );
 }
 
-export async function getPendingEquipmentListings() {
-  const equipmentRows = await queryEquipmentByStatus("PENDING_VERIFICATION");
+export async function getPendingEquipmentListings(
+  input: PendingEquipmentQueryInput,
+): Promise<PaginatedResult<SafeEquipment>> {
+  const pagination = normalizePagination(input);
+  const [equipmentRows, totalItems] = await Promise.all([
+    queryEquipmentByStatus("PENDING_VERIFICATION", {
+      search: input.search,
+      limit: pagination.take,
+      offset: pagination.skip,
+    }),
+    countEquipmentByStatus("PENDING_VERIFICATION", input.search),
+  ]);
   const imageRows = await queryEquipmentImagesByIds(
     equipmentRows.map((row) => row.id),
   );
   const groupedImages = groupImagesByEquipmentId(imageRows);
 
-  return equipmentRows.map((row) =>
-    mapRowToPublicEquipment(row, groupedImages[row.id] ?? []),
+  return createPaginatedResult(
+    equipmentRows.map((row) =>
+      mapRowToPublicEquipment(row, groupedImages[row.id] ?? []),
+    ),
+    {
+      page: pagination.page,
+      pageSize: pagination.pageSize,
+    },
+    totalItems,
   );
 }
 

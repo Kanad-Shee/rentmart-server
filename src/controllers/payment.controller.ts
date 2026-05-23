@@ -5,6 +5,7 @@ import {
   getAdminCashfreeWebhookEvents,
   processCashfreeWebhook,
 } from "../services/booking.service.js";
+import type { AdminPaymentEventsQueryInput } from "../validators/booking.schema.js";
 
 function sendError(res: Response, status: number, message: string, errors?: unknown) {
   return res.status(status).json({
@@ -55,7 +56,10 @@ export async function getAdminCashfreeWebhookEventsController(req: Request, res:
       return sendError(res, 401, "Unauthorized.");
     }
 
-    const events = await getAdminCashfreeWebhookEvents(adminId);
+    const events = await getAdminCashfreeWebhookEvents(
+      adminId,
+      req.query as unknown as AdminPaymentEventsQueryInput,
+    );
 
     return res.status(200).json({
       success: true,

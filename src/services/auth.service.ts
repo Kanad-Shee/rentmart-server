@@ -19,6 +19,11 @@ import { db } from "../lib/db.js";
 import { logServiceError } from "../lib/error-logger.js";
 import { sendAccountEventEmail, sendOtpEmail } from "../lib/brevo-mailer.js";
 import { logger } from "../lib/logger.js";
+import {
+  createPaginatedResult,
+  normalizePagination,
+  type PaginatedResult,
+} from "../lib/pagination.js";
 // import { sendOtpEmail } from "../lib/resend.js";
 import { checkSmsVerification, startSmsVerification } from "../lib/twilio.js";
 import {
@@ -980,7 +985,7 @@ export async function updateCurrentUserPassword(
 export async function listUsersForAdmin(
   adminId: string,
   input: ListUsersQueryInput,
-) {
+): Promise<PaginatedResult<AdminUserManagementItem>> {
   const admin = await db.user.findUnique({
     where: { id: adminId },
     select: { id: true, role: true },
@@ -990,6 +995,7 @@ export async function listUsersForAdmin(
     throw new AuthServiceError("Admin access required.", 403, "FORBIDDEN");
   }
 
+  const pagination = normalizePagination(input);
   const filters: Prisma.Sql[] = [];
 
   if (input.search?.trim()) {
@@ -1025,8 +1031,9 @@ export async function listUsersForAdmin(
       ? Prisma.sql`WHERE ${Prisma.join(filters, " AND ")}`
       : Prisma.empty;
 
-  const rows = await db.$queryRaw<AdminUserRow[]>(Prisma.sql`
-    SELECT
+  const [rows, countRows] = await Promise.all([
+    db.$queryRaw<AdminUserRow[]>(Prisma.sql`
+      SELECT
       u."id",
       u."fullName",
       u."email",
@@ -1058,12 +1065,27 @@ export async function listUsersForAdmin(
         WHERE n."userId" = u."id"
           AND n."isRead" = false
       ) AS "unreadNotificationCount"
-    FROM "User" u
-    ${whereClause}
-    ORDER BY u."updatedAt" DESC, u."createdAt" DESC
-  `);
+      FROM "User" u
+      ${whereClause}
+      ORDER BY u."updatedAt" DESC, u."createdAt" DESC
+      LIMIT ${pagination.take}
+      OFFSET ${pagination.skip}
+    `),
+    db.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
+      SELECT COUNT(*)::bigint AS "count"
+      FROM "User" u
+      ${whereClause}
+    `),
+  ]);
 
-  return rows.map(mapAdminUserRow);
+  return createPaginatedResult(
+    rows.map(mapAdminUserRow),
+    {
+      page: pagination.page,
+      pageSize: pagination.pageSize,
+    },
+    Number(countRows[0]?.count ?? 0n),
+  );
 }
 
 export async function getDashboardMetrics(

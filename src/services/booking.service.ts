@@ -9,6 +9,11 @@ import { db } from "../lib/db.js";
 import { logServiceError } from "../lib/error-logger.js";
 import { logger } from "../lib/logger.js";
 import {
+  createPaginatedResult,
+  normalizePagination,
+  type PaginatedResult,
+} from "../lib/pagination.js";
+import {
   canOwnerCompleteBookingStatus,
   canOwnerDisputeBookingStatus,
 } from "../lib/booking-state.js";
@@ -50,11 +55,15 @@ import {
   createRenterPaymentConfirmedNotification,
 } from "./notification.service.js";
 import type {
+  AdminBookingsQueryInput,
+  AdminPaymentEventsQueryInput,
   CreateBookingInput,
   DisputeBookingInput,
+  OwnerBookingsQueryInput,
   RejectBookingInput,
   VerifyBookingPaymentInput,
 } from "../validators/booking.schema.js";
+import type { PaginationQueryInput } from "../validators/pagination.schema.js";
 
 const overlapStatuses: BookingStatus[] = [
   "PENDING_OWNER_APPROVAL",
@@ -616,6 +625,96 @@ async function ensureBooking(bookingId: string) {
   return booking;
 }
 
+const bookingListInclude = {
+  equipment: {
+    include: {
+      images: {
+        orderBy: { position: "asc" as const },
+        take: 1,
+      },
+    },
+  },
+  renter: true,
+  owner: true,
+  disputeImages: {
+    orderBy: { position: "asc" as const },
+  },
+} satisfies Prisma.BookingInclude;
+
+function getOwnerBookingGroupWhere(group?: OwnerBookingsQueryInput["group"]) {
+  switch (group) {
+    case "PENDING":
+      return { status: "PENDING_OWNER_APPROVAL" as const };
+    case "AWAITING_PAYMENT":
+      return { status: "PENDING_RENTER_PAYMENT" as const };
+    case "CONFIRMED":
+      return { status: "CONFIRMED" as const };
+    case "IN_PROGRESS":
+      return { status: "IN_PROGRESS" as const };
+    case "HISTORY":
+      return {
+        status: {
+          in: ["COMPLETED", "CANCELLED", "DISPUTED"] as BookingStatus[],
+        },
+      };
+    default:
+      return {};
+  }
+}
+
+function buildAdminBookingsWhere(
+  input: AdminBookingsQueryInput,
+): Prisma.BookingWhereInput {
+  const and: Prisma.BookingWhereInput[] = [];
+
+  if (input.search?.trim()) {
+    const search = input.search.trim();
+    and.push({
+      OR: [
+        { id: { contains: search, mode: "insensitive" } },
+        { cashfreeOrderId: { contains: search, mode: "insensitive" } },
+        { cashfreePaymentId: { contains: search, mode: "insensitive" } },
+        { equipment: { title: { contains: search, mode: "insensitive" } } },
+        { owner: { fullName: { contains: search, mode: "insensitive" } } },
+        { renter: { fullName: { contains: search, mode: "insensitive" } } },
+      ],
+    });
+  }
+
+  if (input.status && input.status !== "ALL") {
+    and.push({ status: input.status });
+  }
+
+  if (input.financialStatus && input.financialStatus !== "ALL") {
+    and.push({ financialStatus: input.financialStatus });
+  }
+
+  if (input.ownerPayoutStatus && input.ownerPayoutStatus !== "ALL") {
+    and.push({ ownerPayoutStatus: input.ownerPayoutStatus });
+  }
+
+  if (input.depositRefundStatus && input.depositRefundStatus !== "ALL") {
+    and.push({ depositRefundStatus: input.depositRefundStatus });
+  }
+
+  if (input.needsAction === "ONLY_ACTION") {
+    and.push({
+      isPaymentCompleted: true,
+      status: { in: ["COMPLETED", "DISPUTED"] },
+      OR: [
+        { ownerPayoutStatus: { not: "PAID" } },
+        {
+          depositRefundStatus: {
+            notIn: ["REFUNDED", "SKIPPED"],
+          },
+        },
+      ],
+    });
+  }
+
+  return and.length > 0 ? { AND: and } : {};
+}
+
 function ensureBookingStatus(
   currentStatus: BookingStatus,
   allowedStatuses: BookingStatus[],
@@ -857,81 +956,85 @@ export async function createBookingRequest(
   return mapBooking(booking);
 }
 
-export async function getRenterBookings(renterId: string) {
+export async function getRenterBookings(
+  renterId: string,
+  input: PaginationQueryInput,
+): Promise<PaginatedResult<SafeBooking>> {
   await expireStaleBookings();
 
-  const bookings = await db.booking.findMany({
-    where: { renterId },
-    orderBy: { createdAt: "desc" },
-    include: {
-      equipment: {
-        include: {
-          images: {
-            orderBy: { position: "asc" },
-            take: 1,
-          },
-        },
-      },
-      renter: true,
-      owner: true,
-      disputeImages: {
-        orderBy: { position: "asc" },
-      },
-    },
-  });
+  const pagination = normalizePagination(input);
+  const where = { renterId } satisfies Prisma.BookingWhereInput;
+  const [bookings, totalItems] = await Promise.all([
+    db.booking.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: pagination.skip,
+      take: pagination.take,
+      include: bookingListInclude,
+    }),
+    db.booking.count({ where }),
+  ]);
 
-  return bookings.map(mapBooking);
+  return createPaginatedResult(
+    bookings.map(mapBooking),
+    { page: pagination.page, pageSize: pagination.pageSize },
+    totalItems,
+  );
 }
 
-export async function getOwnerBookings(ownerId: string) {
+export async function getOwnerBookings(
+  ownerId: string,
+  input: OwnerBookingsQueryInput,
+): Promise<PaginatedResult<SafeBooking>> {
   await expireStaleBookings();
 
-  const bookings = await db.booking.findMany({
-    where: { ownerId },
-    orderBy: { createdAt: "desc" },
-    include: {
-      equipment: {
-        include: {
-          images: {
-            orderBy: { position: "asc" },
-            take: 1,
-          },
-        },
-      },
-      renter: true,
-      owner: true,
-      disputeImages: {
-        orderBy: { position: "asc" },
-      },
-    },
-  });
+  const pagination = normalizePagination(input);
+  const where = {
+    ownerId,
+    ...getOwnerBookingGroupWhere(input.group),
+  } satisfies Prisma.BookingWhereInput;
+  const [bookings, totalItems] = await Promise.all([
+    db.booking.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: pagination.skip,
+      take: pagination.take,
+      include: bookingListInclude,
+    }),
+    db.booking.count({ where }),
+  ]);
 
-  return bookings.map(mapBooking);
+  return createPaginatedResult(
+    bookings.map(mapBooking),
+    { page: pagination.page, pageSize: pagination.pageSize },
+    totalItems,
+  );
 }
 
-export async function getAdminBookings(_adminId: string) {
+export async function getAdminBookings(
+  _adminId: string,
+  input: AdminBookingsQueryInput,
+): Promise<PaginatedResult<SafeBooking>> {
   await expireStaleBookings();
 
-  const bookings = await db.booking.findMany({
-    orderBy: { createdAt: "desc" },
-    include: {
-      equipment: {
-        include: {
-          images: {
-            orderBy: { position: "asc" },
-            take: 1,
-          },
-        },
-      },
-      renter: true,
-      owner: true,
-      disputeImages: {
-        orderBy: { position: "asc" },
-      },
-    },
-  });
+  const pagination = normalizePagination(input);
+  const where = buildAdminBookingsWhere(input);
+  const [bookings, totalItems] = await Promise.all([
+    db.booking.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: pagination.skip,
+      take: pagination.take,
+      include: bookingListInclude,
+    }),
+    db.booking.count({ where }),
+  ]);
 
-  return bookings.map(mapBooking);
+  return createPaginatedResult(
+    bookings.map(mapBooking),
+    { page: pagination.page, pageSize: pagination.pageSize },
+    totalItems,
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -995,10 +1098,44 @@ function getWebhookEventStatus(input: {
   return "processed" satisfies AdminWebhookEvent["status"];
 }
 
-export async function getAdminCashfreeWebhookEvents(_adminId: string) {
-  const events = await db.cashfreeWebhookEvent.findMany({
-    orderBy: [{ createdAt: "desc" }, { processedAt: "desc" }],
-  });
+export async function getAdminCashfreeWebhookEvents(
+  _adminId: string,
+  input: AdminPaymentEventsQueryInput,
+): Promise<PaginatedResult<AdminWebhookEvent>> {
+  const pagination = normalizePagination(input);
+  const where: Prisma.CashfreeWebhookEventWhereInput = {};
+
+  if (input.search?.trim()) {
+    const search = input.search.trim();
+    where.OR = [
+      { eventId: { contains: search, mode: "insensitive" } },
+      { entityId: { contains: search, mode: "insensitive" } },
+      { eventType: { contains: search, mode: "insensitive" } },
+    ];
+  }
+
+  if (input.eventType?.trim()) {
+    where.eventType = {
+      contains: input.eventType.trim(),
+      mode: "insensitive",
+    };
+  }
+
+  if (input.status === "processed") {
+    where.processedAt = { not: null };
+  } else if (input.status === "unprocessed") {
+    where.processedAt = null;
+  }
+
+  const [events, totalItems] = await Promise.all([
+    db.cashfreeWebhookEvent.findMany({
+      where,
+      orderBy: [{ createdAt: "desc" }, { processedAt: "desc" }],
+      skip: pagination.skip,
+      take: pagination.take,
+    }),
+    db.cashfreeWebhookEvent.count({ where }),
+  ]);
 
   const references = events.map((event) => ({
     eventId: event.eventId,
@@ -1064,41 +1201,68 @@ export async function getAdminCashfreeWebhookEvents(_adminId: string) {
     }
   }
 
-  return events.map((event) => {
-    const refs = buildWebhookReferenceMap({
-      entityId: event.entityId,
-      payload: event.payload,
-    });
-    const linkedBooking =
-      (refs.orderId ? bookingsByOrderId.get(refs.orderId) : null) ??
-      (refs.paymentId ? bookingsByPaymentId.get(refs.paymentId) : null) ??
-      (refs.entityId ? bookingsByPaymentId.get(refs.entityId) : null) ??
-      null;
+  const mappedEvents = events
+    .map((event) => {
+      const refs = buildWebhookReferenceMap({
+        entityId: event.entityId,
+        payload: event.payload,
+      });
+      const linkedBooking =
+        (refs.orderId ? bookingsByOrderId.get(refs.orderId) : null) ??
+        (refs.paymentId ? bookingsByPaymentId.get(refs.paymentId) : null) ??
+        (refs.entityId ? bookingsByPaymentId.get(refs.entityId) : null) ??
+        null;
 
-    return {
-      id: event.id,
-      eventId: event.eventId,
-      eventType: event.eventType,
-      entityId: event.entityId,
-      processedAt: event.processedAt?.toISOString() ?? null,
-      createdAt: event.createdAt.toISOString(),
-      payload: event.payload,
-      linkedOrderId: refs.orderId,
-      linkedPaymentId: refs.paymentId,
-      linkedBooking: linkedBooking
-        ? {
-            id: linkedBooking.id,
-            equipmentTitle: linkedBooking.equipment.title,
-            ownerName: linkedBooking.owner.fullName,
-            renterName: linkedBooking.renter.fullName,
-          }
-        : null,
-      status: getWebhookEventStatus({
-        processedAt: event.processedAt,
-        linkedBookingId: linkedBooking?.id ?? null,
-      }),
-    } satisfies AdminWebhookEvent;
-  });
+      return {
+        id: event.id,
+        eventId: event.eventId,
+        eventType: event.eventType,
+        entityId: event.entityId,
+        processedAt: event.processedAt?.toISOString() ?? null,
+        createdAt: event.createdAt.toISOString(),
+        payload: event.payload,
+        linkedOrderId: refs.orderId,
+        linkedPaymentId: refs.paymentId,
+        linkedBooking: linkedBooking
+          ? {
+              id: linkedBooking.id,
+              equipmentTitle: linkedBooking.equipment.title,
+              ownerName: linkedBooking.owner.fullName,
+              renterName: linkedBooking.renter.fullName,
+            }
+          : null,
+        status: getWebhookEventStatus({
+          processedAt: event.processedAt,
+          linkedBookingId: linkedBooking?.id ?? null,
+        }),
+      } satisfies AdminWebhookEvent;
+    })
+    .filter((event) => {
+      if (input.status === "unmatched") {
+        return event.status === "unmatched";
+      }
+
+      if (input.linkState === "LINKED") {
+        return Boolean(event.linkedBooking);
+      }
+
+      if (input.linkState === "UNLINKED") {
+        return !event.linkedBooking;
+      }
+
+      return true;
+    });
+
+  const filteredTotalItems =
+    input.status === "unmatched" || input.linkState === "LINKED" || input.linkState === "UNLINKED"
+      ? mappedEvents.length
+      : totalItems;
+
+  return createPaginatedResult(
+    mappedEvents,
+    { page: pagination.page, pageSize: pagination.pageSize },
+    filteredTotalItems,
+  );
 }
 
 export async function approveBookingRequest(

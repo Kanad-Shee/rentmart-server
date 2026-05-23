@@ -7,7 +7,10 @@ import {
   listSupportQueriesController,
   resolveSupportQueryController,
 } from "../controllers/support-query.controller.js";
-import { createSupportQuerySchema } from "../validators/support-query.schema.js";
+import {
+  createSupportQuerySchema,
+  listSupportQueriesQuerySchema,
+} from "../validators/support-query.schema.js";
 
 const supportQueryRouter = Router();
 
@@ -15,6 +18,7 @@ supportQueryRouter.get(
   "/",
   authenticateUser,
   requireRole(UserRole.ADMIN),
+  validateRequest(listSupportQueriesQuerySchema, "query"),
   listSupportQueriesController,
 );
 

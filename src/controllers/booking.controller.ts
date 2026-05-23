@@ -17,13 +17,16 @@ import {
   verifyCompletedBookingPayment,
 } from "../services/booking.service.js";
 import type {
+  AdminBookingsQueryInput,
   BookingParams,
   CreateBookingInput,
   DisputeBookingInput,
   ManualSettlementInput,
+  OwnerBookingsQueryInput,
   RejectBookingInput,
   VerifyBookingPaymentInput,
 } from "../validators/booking.schema.js";
+import type { PaginationQueryInput } from "../validators/pagination.schema.js";
 
 function sendSuccess<T>(res: Response, status: number, message: string, data: T) {
   return res.status(status).json({
@@ -98,7 +101,10 @@ export async function getMyBookingsController(req: Request, res: Response) {
       return sendError(res, 401, "Unauthorized.");
     }
 
-    const bookings = await getRenterBookings(renterId);
+    const bookings = await getRenterBookings(
+      renterId,
+      req.query as unknown as PaginationQueryInput,
+    );
     return sendSuccess(res, 200, "Bookings fetched successfully.", bookings);
   } catch (error) {
     return handleBookingError(res, error);
@@ -113,7 +119,10 @@ export async function getOwnerBookingsController(req: Request, res: Response) {
       return sendError(res, 401, "Unauthorized.");
     }
 
-    const bookings = await getOwnerBookings(ownerId);
+    const bookings = await getOwnerBookings(
+      ownerId,
+      req.query as unknown as OwnerBookingsQueryInput,
+    );
     return sendSuccess(res, 200, "Owner bookings fetched successfully.", bookings);
   } catch (error) {
     return handleBookingError(res, error);
@@ -128,7 +137,10 @@ export async function getAdminBookingsController(req: Request, res: Response) {
       return sendError(res, 401, "Unauthorized.");
     }
 
-    const bookings = await getAdminBookings(adminId);
+    const bookings = await getAdminBookings(
+      adminId,
+      req.query as unknown as AdminBookingsQueryInput,
+    );
     return sendSuccess(res, 200, "Admin bookings fetched successfully.", bookings);
   } catch (error) {
     return handleBookingError(res, error);

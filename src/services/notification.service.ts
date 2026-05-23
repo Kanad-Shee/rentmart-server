@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { db } from "../lib/db.js";
+import {
+  createPaginatedResult,
+  normalizePagination,
+  type PaginatedResult,
+} from "../lib/pagination.js";
 import type { NotificationType, SafeNotification } from "../types/notification.js";
+import type { PaginationQueryInput } from "../validators/pagination.schema.js";
 
 type NotificationRow = {
   id: string;
@@ -467,8 +473,13 @@ export async function createBookingCancelledNotifications(
   });
 }
 
-export async function getMyNotifications(userId: string) {
-  const rows = await db.$queryRaw<NotificationRow[]>(Prisma.sql`
+export async function getMyNotifications(
+  userId: string,
+  input: PaginationQueryInput,
+): Promise<PaginatedResult<SafeNotification>> {
+  const pagination = normalizePagination(input);
+  const [rows, countRows] = await Promise.all([
+    db.$queryRaw<NotificationRow[]>(Prisma.sql`
     SELECT
       n."id",
       n."userId",
@@ -484,9 +495,24 @@ export async function getMyNotifications(userId: string) {
     FROM "Notification" n
     WHERE n."userId" = ${userId}
     ORDER BY n."createdAt" DESC
-  `);
+    LIMIT ${pagination.take}
+    OFFSET ${pagination.skip}
+  `),
+    db.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
+      SELECT COUNT(*)::bigint AS "count"
+      FROM "Notification" n
+      WHERE n."userId" = ${userId}
+    `),
+  ]);
 
-  return rows.map(mapRowToSafeNotification);
+  return createPaginatedResult(
+    rows.map(mapRowToSafeNotification),
+    {
+      page: pagination.page,
+      pageSize: pagination.pageSize,
+    },
+    Number(countRows[0]?.count ?? 0n),
+  );
 }
 
 export async function markNotificationAsRead(userId: string, notificationId: string) {

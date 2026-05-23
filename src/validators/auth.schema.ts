@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { paginationQuerySchema } from "./pagination.schema.js";
 
 function sanitizePhoneInput(phone: string) {
   return phone.trim().replace(/[\s()-]/g, "");
@@ -152,7 +153,7 @@ export const updatePasswordSchema = z
     }
   });
 
-export const listUsersQuerySchema = z.object({
+export const listUsersQuerySchema = paginationQuerySchema.extend({
   search: z.string().trim().max(100, "Search is too long.").optional(),
   role: z.enum(["ALL", "ADMIN", "OWNER", "RENTER"]).optional(),
   verification: z.enum(["ALL", "VERIFIED", "ACTION_REQUIRED"]).optional(),

@@ -30,6 +30,8 @@ import {
   createEquipmentReviewSchema,
   equipmentIdSchema,
   geocodeEquipmentSchema,
+  ownerEquipmentQuerySchema,
+  pendingEquipmentQuerySchema,
   placeIdSchema,
   rejectEquipmentSchema,
   updateEquipmentReviewSchema,
@@ -100,6 +102,7 @@ equipmentRouter.get(
   "/mine",
   authenticateUser,
   requireRole(UserRole.OWNER),
+  validateRequest(ownerEquipmentQuerySchema, "query"),
   getMyEquipmentController
 );
 
@@ -133,6 +136,7 @@ equipmentRouter.get(
   "/pending",
   authenticateUser,
   requireRole(UserRole.ADMIN),
+  validateRequest(pendingEquipmentQuerySchema, "query"),
   getPendingEquipmentController
 );
 

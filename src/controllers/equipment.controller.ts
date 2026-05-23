@@ -26,6 +26,8 @@ import type {
   CreateDraftEquipmentInput,
   CreateEquipmentReviewInput,
   GeocodeEquipmentInput,
+  OwnerEquipmentQueryInput,
+  PendingEquipmentQueryInput,
   PlaceIdInput,
   RejectEquipmentInput,
   UpdateEquipmentReviewInput,
@@ -153,7 +155,10 @@ export async function getMyEquipmentController(req: Request, res: Response) {
       return sendError(res, 401, "Unauthorized.");
     }
 
-    const listings = await getOwnerEquipmentListings(ownerId);
+    const listings = await getOwnerEquipmentListings(
+      ownerId,
+      req.query as unknown as OwnerEquipmentQueryInput,
+    );
 
     return sendSuccess(res, 200, "Equipment listings fetched successfully.", listings);
   } catch (error) {
@@ -275,9 +280,11 @@ export async function submitOwnerEquipmentController(req: Request, res: Response
   }
 }
 
-export async function getPendingEquipmentController(_req: Request, res: Response) {
+export async function getPendingEquipmentController(req: Request, res: Response) {
   try {
-    const listings = await getPendingEquipmentListings();
+    const listings = await getPendingEquipmentListings(
+      req.query as unknown as PendingEquipmentQueryInput,
+    );
 
     return sendSuccess(res, 200, "Pending equipment listings fetched successfully.", listings);
   } catch (error) {

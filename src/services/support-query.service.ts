@@ -1,7 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { Prisma, UserRole } from "@prisma/client";
 import { db } from "../lib/db.js";
-import type { CreateSupportQueryInput } from "../validators/support-query.schema.js";
+import {
+  createPaginatedResult,
+  normalizePagination,
+  type PaginatedResult,
+} from "../lib/pagination.js";
+import type {
+  CreateSupportQueryInput,
+  ListSupportQueriesQueryInput,
+} from "../validators/support-query.schema.js";
 
 export type SupportQueryListItem = {
   id: string;
@@ -136,8 +144,42 @@ export async function createSupportQuery(
   return toSupportQueryItem(created);
 }
 
-export async function listSupportQueries() {
-  const queries = await db.$queryRaw<SupportQueryRow[]>(Prisma.sql`
+export async function listSupportQueries(
+  input: ListSupportQueriesQueryInput,
+): Promise<PaginatedResult<SupportQueryListItem>> {
+  const pagination = normalizePagination(input);
+  const filters: Prisma.Sql[] = [];
+
+  if (input.search?.trim()) {
+    const search = `%${input.search.trim()}%`;
+    filters.push(Prisma.sql`
+      (
+        "fullName" ILIKE ${search}
+        OR "email" ILIKE ${search}
+        OR "message" ILIKE ${search}
+        OR "role"::text ILIKE ${search}
+        OR "topic"::text ILIKE ${search}
+      )
+    `);
+  }
+
+  if (input.role && input.role !== "ALL") {
+    filters.push(Prisma.sql`"role" = ${input.role}::"UserRole"`);
+  }
+
+  if (input.topic && input.topic !== "ALL") {
+    filters.push(
+      Prisma.sql`"topic" = ${input.topic}::"SupportQueryTopic"`,
+    );
+  }
+
+  const whereClause =
+    filters.length > 0
+      ? Prisma.sql`WHERE ${Prisma.join(filters, " AND ")}`
+      : Prisma.empty;
+
+  const [queries, countRows] = await Promise.all([
+    db.$queryRaw<SupportQueryRow[]>(Prisma.sql`
     SELECT
       "id",
       "userId",
@@ -149,10 +191,26 @@ export async function listSupportQueries() {
       "createdAt",
       "updatedAt"
     FROM "SupportQuery"
+    ${whereClause}
     ORDER BY "createdAt" DESC
-  `);
+    LIMIT ${pagination.take}
+    OFFSET ${pagination.skip}
+  `),
+    db.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
+      SELECT COUNT(*)::bigint AS "count"
+      FROM "SupportQuery"
+      ${whereClause}
+    `),
+  ]);
 
-  return queries.map(toSupportQueryItem);
+  return createPaginatedResult(
+    queries.map(toSupportQueryItem),
+    {
+      page: pagination.page,
+      pageSize: pagination.pageSize,
+    },
+    Number(countRows[0]?.count ?? 0n),
+  );
 }
 
 export async function resolveSupportQuery(id: string) {

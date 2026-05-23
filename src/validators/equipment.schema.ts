@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { paginationQuerySchema } from "./pagination.schema.js";
 
 export const geocodeEquipmentSchema = z.object({
   address: z
@@ -89,6 +90,14 @@ export const equipmentIdSchema = z.object({
   id: z.string({ message: "Equipment id is required." }).trim().min(1, "Equipment id is required."),
 });
 
+export const ownerEquipmentQuerySchema = paginationQuerySchema.extend({
+  tab: z.enum(["live", "pending", "draft"]).optional(),
+});
+
+export const pendingEquipmentQuerySchema = paginationQuerySchema.extend({
+  search: z.string().trim().max(100, "Search is too long.").optional(),
+});
+
 const reviewTitleSchema = z
   .string({ message: "Review title is required." })
   .trim()
@@ -132,5 +141,9 @@ export type CreateEquipmentInput = z.infer<typeof createEquipmentSchema>;
 export type CreateDraftEquipmentInput = z.infer<typeof createDraftEquipmentSchema>;
 export type UpdateOwnerEquipmentInput = z.infer<typeof updateOwnerEquipmentSchema>;
 export type RejectEquipmentInput = z.infer<typeof rejectEquipmentSchema>;
+export type OwnerEquipmentQueryInput = z.infer<typeof ownerEquipmentQuerySchema>;
+export type PendingEquipmentQueryInput = z.infer<
+  typeof pendingEquipmentQuerySchema
+>;
 export type CreateEquipmentReviewInput = z.infer<typeof createEquipmentReviewSchema>;
 export type UpdateEquipmentReviewInput = z.infer<typeof updateEquipmentReviewSchema>;

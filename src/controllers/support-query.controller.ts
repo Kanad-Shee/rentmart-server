@@ -6,7 +6,10 @@ import {
   resolveSupportQuery,
   SupportQueryServiceError,
 } from "../services/support-query.service.js";
-import type { CreateSupportQueryInput } from "../validators/support-query.schema.js";
+import type {
+  CreateSupportQueryInput,
+  ListSupportQueriesQueryInput,
+} from "../validators/support-query.schema.js";
 
 function sendSuccess<T>(res: Response, status: number, message: string, data: T) {
   return res.status(status).json({
@@ -63,9 +66,11 @@ export async function createSupportQueryController(req: Request, res: Response) 
   }
 }
 
-export async function listSupportQueriesController(_req: Request, res: Response) {
+export async function listSupportQueriesController(req: Request, res: Response) {
   try {
-    const queries = await listSupportQueries();
+    const queries = await listSupportQueries(
+      req.query as unknown as ListSupportQueriesQueryInput,
+    );
     return sendSuccess(res, 200, "Support queries fetched successfully.", queries);
   } catch (error) {
     return handleSupportQueryError(res, error);

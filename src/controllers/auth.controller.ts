@@ -214,7 +214,10 @@ export async function listUsersController(req: Request, res: Response) {
       return sendError(res, 401, "Unauthorized.");
     }
 
-    const users = await listUsersForAdmin(userId, req.query);
+    const users = await listUsersForAdmin(
+      userId,
+      req.query as unknown as Parameters<typeof listUsersForAdmin>[1],
+    );
 
     return sendSuccess(res, 200, "Users fetched successfully.", users);
   } catch (error) {

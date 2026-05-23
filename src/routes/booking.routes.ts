@@ -23,14 +23,17 @@ import {
 } from "../middlewares/auth.middleware.js";
 import { validateRequest } from "../middlewares/validate.middleware.js";
 import {
+  adminBookingsQuerySchema,
   bookingParamsSchema,
   createBookingPaymentOrderSchema,
   createBookingSchema,
   disputeBookingSchema,
   manualSettlementSchema,
+  ownerBookingsQuerySchema,
   rejectBookingSchema,
   verifyBookingPaymentSchema,
 } from "../validators/booking.schema.js";
+import { paginationQuerySchema } from "../validators/pagination.schema.js";
 
 const bookingRouter = Router();
 
@@ -47,6 +50,7 @@ bookingRouter.get(
   "/mine",
   authenticateUser,
   requireRole(UserRole.RENTER),
+  validateRequest(paginationQuerySchema, "query"),
   getMyBookingsController,
 );
 
@@ -54,6 +58,7 @@ bookingRouter.get(
   "/owner",
   authenticateUser,
   requireRole(UserRole.OWNER),
+  validateRequest(ownerBookingsQuerySchema, "query"),
   getOwnerBookingsController,
 );
 
@@ -61,6 +66,7 @@ bookingRouter.get(
   "/admin",
   authenticateUser,
   requireRole(UserRole.ADMIN),
+  validateRequest(adminBookingsQuerySchema, "query"),
   getAdminBookingsController,
 );
 
