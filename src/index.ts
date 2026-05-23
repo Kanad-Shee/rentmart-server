@@ -8,7 +8,7 @@ import { notificationRouter } from "./routes/notification.routes.js";
 import { paymentRouter } from "./routes/payment.routes.js";
 import { supportQueryRouter } from "./routes/support-query.routes.js";
 import { wishlistRouter } from "./routes/wishlist.routes.js";
-import { initializeMailer } from "./lib/mailer.js";
+import { initializeMailer } from "./lib/brevo-mailer.js";
 import { initializeDatabase } from "./lib/db.js";
 import { initializeRedis } from "./lib/redis.js";
 

@@ -22,7 +22,7 @@ import {
   BOOKING_SECURITY_DEPOSIT_MIN,
   BOOKING_SECURITY_DEPOSIT_RATE,
 } from "../configs/booking.config.js";
-import { sendBookingEventEmail } from "../lib/mailer.js";
+import { sendBookingEventEmail } from "../lib/brevo-mailer.js";
 import { deleteCloudinaryImage, uploadBookingDisputeImage } from "../lib/cloudinary.js";
 import {
   CashfreeApiError,

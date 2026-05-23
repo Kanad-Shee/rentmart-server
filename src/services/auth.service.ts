@@ -17,7 +17,7 @@ import {
 } from "../lib/auth-crypto.js";
 import { db } from "../lib/db.js";
 import { logServiceError } from "../lib/error-logger.js";
-import { sendAccountEventEmail, sendOtpEmail } from "../lib/mailer.js";
+import { sendAccountEventEmail, sendOtpEmail } from "../lib/brevo-mailer.js";
 // import { sendOtpEmail } from "../lib/resend.js";
 import { checkSmsVerification, startSmsVerification } from "../lib/twilio.js";
 import {
