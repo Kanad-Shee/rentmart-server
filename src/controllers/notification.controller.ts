@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import { logger } from "../lib/logger.js";
 import {
   getMyNotifications,
   markAllNotificationsAsRead,
@@ -27,7 +28,12 @@ function handleNotificationError(res: Response, error: unknown) {
     return sendError(res, error.statusCode, error.message, { code: error.code });
   }
 
-  console.error("Notification controller error:", error);
+  logger.error("Notification controller error", {
+    service: "notification.controller",
+    action: "handleNotificationError",
+    error: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack : undefined,
+  });
   return sendError(res, 500, "Something went wrong.");
 }
 

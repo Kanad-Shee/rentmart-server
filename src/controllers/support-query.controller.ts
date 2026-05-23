@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import { logger } from "../lib/logger.js";
 import {
   createSupportQuery,
   listSupportQueries,
@@ -28,7 +29,12 @@ function handleSupportQueryError(res: Response, error: unknown) {
     return sendError(res, error.statusCode, error.message, { code: error.code });
   }
 
-  console.error("Support query controller error:", error);
+  logger.error("Support query controller error", {
+    service: "support-query.controller",
+    action: "handleSupportQueryError",
+    error: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack : undefined,
+  });
   return sendError(res, 500, "Something went wrong.");
 }
 

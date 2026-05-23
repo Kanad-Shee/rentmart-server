@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import { logger } from "../lib/logger.js";
 import {
   BookingServiceError,
   getAdminCashfreeWebhookEvents,
@@ -36,7 +37,12 @@ export async function cashfreeWebhookController(req: Request, res: Response) {
       return sendError(res, error.statusCode, error.message, { code: error.code });
     }
 
-    console.error("Cashfree webhook error:", error);
+    logger.error("Cashfree webhook error", {
+      service: "payment.controller",
+      action: "cashfreeWebhookController",
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     return sendError(res, 500, "Something went wrong.");
   }
 }
@@ -61,7 +67,12 @@ export async function getAdminCashfreeWebhookEventsController(req: Request, res:
       return sendError(res, error.statusCode, error.message, { code: error.code });
     }
 
-    console.error("Admin payment events controller error:", error);
+    logger.error("Admin payment events controller error", {
+      service: "payment.controller",
+      action: "getAdminCashfreeWebhookEventsController",
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     return sendError(res, 500, "Something went wrong.");
   }
 }

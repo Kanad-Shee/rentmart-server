@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import { logger } from "../lib/logger.js";
 import {
   approveEquipmentListing,
   createDraftEquipmentListing,
@@ -52,7 +53,12 @@ function handleEquipmentError(res: Response, error: unknown) {
     return sendError(res, error.statusCode, error.message, { code: error.code });
   }
 
-  console.error("Equipment controller error:", error);
+  logger.error("Equipment controller error", {
+    service: "equipment.controller",
+    action: "handleEquipmentError",
+    error: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack : undefined,
+  });
   return sendError(res, 500, "Something went wrong.");
 }
 

@@ -1,3 +1,5 @@
+import { logger } from "./logger.js";
+
 type MailRecipient = {
   email: string;
   name?: string;
@@ -66,6 +68,9 @@ type BrevoSuccessResponse = {
 const APP_NAME = "RentMart";
 const DEFAULT_FROM_NAME = "RentMart";
 const BREVO_API_URL = "https://api.brevo.com/v3/smtp/email";
+const APP_SUPPORT_EMAIL = "support@rentmart.in";
+const APP_TERMS_URL = "/terms";
+const APP_SUPPORT_URL = "/contact";
 
 function getEnv(name: string) {
   const value = process.env[name]?.trim();
@@ -144,6 +149,17 @@ function getPurposeDefaultActionLabel(purpose: EmailPurpose) {
   }
 }
 
+function getPurposeEyebrow(purpose: EmailPurpose) {
+  switch (purpose) {
+    case EmailPurpose.OTP:
+      return "Secure account access";
+    case EmailPurpose.ACCOUNT:
+      return "Account activity update";
+    case EmailPurpose.BOOKING:
+      return "Rental lifecycle update";
+  }
+}
+
 function renderDetailRows(
   details?: Array<{
     label: string;
@@ -155,65 +171,171 @@ function renderDetailRows(
   }
 
   return `
-    <div style="margin-top: 28px; border: 1px solid #e5e7eb; border-radius: 10px; padding: 18px 20px; text-align: left; background-color: #f9faf6;">
-      ${details
-        .map(
-          (detail, index) => `
-            <div style="display: flex; justify-content: space-between; gap: 16px; ${
-              index < details.length - 1
-                ? "padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid #e5e7eb;"
-                : ""
-            }">
-              <span style="font-size: 12px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.08em;">
-                ${escapeHtml(detail.label)}
-              </span>
-              <span style="font-size: 14px; color: #111827; font-weight: 600; text-align: right;">
-                ${escapeHtml(detail.value)}
-              </span>
-            </div>
-          `,
-        )
-        .join("")}
-    </div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top: 28px; border: 1px solid #d8ddd9; border-radius: 8px; background-color: #f3f4f1;">
+      <tr>
+        <td style="padding: 0;">
+          ${details
+            .map(
+              (detail, index) => `
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                  <tr>
+                    <td style="padding: 16px 20px; border-bottom: ${
+                      index < details.length - 1 ? "1px solid #d8ddd9" : "0"
+                    };">
+                      <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                        <tr>
+                          <td style="font-size: 11px; line-height: 1.3; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #5f6661;">
+                            ${escapeHtml(detail.label)}
+                          </td>
+                          <td align="right" style="font-size: 14px; line-height: 1.5; font-weight: 600; color: #1a1c1a;">
+                            ${escapeHtml(detail.value)}
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+              `,
+            )
+            .join("")}
+        </td>
+      </tr>
+    </table>
   `;
 }
 
 function renderEmailSkeleton(input: SendEmailInput) {
   const buttonHtml = input.url
     ? `
-      <div style="margin-top: 32px;">
-        <a href="${escapeHtml(input.url)}" style="display: inline-block; background-color: #111827; color: #ffffff; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-size: 15px; font-weight: 500;">
-          ${escapeHtml(input.actionLabel ?? getPurposeDefaultActionLabel(input.purpose))}
-        </a>
-      </div>
+      <table role="presentation" cellspacing="0" cellpadding="0" style="margin-top: 32px;">
+        <tr>
+          <td style="border-radius: 4px; background-color: #1b4332;">
+            <a href="${escapeHtml(input.url)}" style="display: inline-block; padding: 14px 28px; font-size: 14px; line-height: 1.2; font-weight: 600; letter-spacing: 0.01em; color: #ffffff; text-decoration: none; border-radius: 4px;">
+              ${escapeHtml(input.actionLabel ?? getPurposeDefaultActionLabel(input.purpose))}
+            </a>
+          </td>
+        </tr>
+      </table>
     `
     : "";
 
   return `
-    <div style="background-color: #ffffff; padding: 40px 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1a1a1a; line-height: 1.6;">
-      <div style="max-width: 500px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 12px; padding: 40px; text-align: center; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
-        <h2 style="margin-top: 0; font-size: 24px; font-weight: 600; color: #111827; letter-spacing: -0.025em;">
-          ${escapeHtml(getPurposeHeading(input.purpose))}
-        </h2>
-        <div style="margin-top: 24px; font-size: 16px; color: #4b5563;">
-          ${input.body}
-        </div>
-        ${renderDetailRows(input.details)}
-        ${buttonHtml}
-        ${
-          input.footerNote
-            ? `<p style="margin-top: 32px; color: #9ca3af; font-size: 13px;">${escapeHtml(input.footerNote)}</p>`
-            : ""
-        }
-      </div>
-      <div style="max-width: 500px; margin: 20px auto; text-align: center;">
-        <p style="font-size: 12px; color: #9ca3af;">
-          If you didn't request this, you can safely ignore this email.
-        </p>
-        <p style="font-size: 12px; color: #9ca3af; margin-top: 10px;">
-          &copy; 2024 ${escapeHtml(APP_NAME)} Industrial Marketplace.
-        </p>
-      </div>
+    <div style="margin: 0; padding: 0; background-color: #f3f4f1; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1a1c1a;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f3f4f1;">
+        <tr>
+          <td style="padding: 32px 16px;">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 620px; margin: 0 auto; border-collapse: separate;">
+              <tr>
+                <td style="background-color: #1b4332; padding: 26px 32px; border-radius: 8px 8px 0 0;">
+                  <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                    <tr>
+                      <td style="font-size: 28px; line-height: 1.1; font-weight: 700; letter-spacing: -0.03em; color: #ffffff;">
+                        ${escapeHtml(APP_NAME)}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding-top: 10px; font-size: 12px; line-height: 1.4; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: #a5d0b9;">
+                        Industrial Marketplace
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+              <tr>
+                <td style="background-color: #ffffff; border: 1px solid #d8ddd9; border-top: 0; padding: 34px 32px 28px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04);">
+                  <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                    <tr>
+                      <td style="font-size: 11px; line-height: 1.3; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: #5f6661;">
+                        ${escapeHtml(getPurposeEyebrow(input.purpose))}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding-top: 14px;">
+                        <div style="width: 52px; height: 1px; background-color: #86af99;"></div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding-top: 18px; font-size: 31px; line-height: 1.2; font-weight: 600; letter-spacing: -0.02em; color: #1a1c1a;">
+                        ${escapeHtml(getPurposeHeading(input.purpose))}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding-top: 24px; font-size: 16px; line-height: 1.75; color: #414844;">
+                        ${input.body}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>
+                        ${renderDetailRows(input.details)}
+                      </td>
+                    </tr>
+                    ${
+                      buttonHtml
+                        ? `
+                          <tr>
+                            <td>
+                              ${buttonHtml}
+                            </td>
+                          </tr>
+                        `
+                        : ""
+                    }
+                    ${
+                      input.footerNote
+                        ? `
+                          <tr>
+                            <td style="padding-top: 28px;">
+                              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border: 1px solid #d8ddd9; background-color: #f9faf6;">
+                                <tr>
+                                  <td style="padding: 16px 18px; font-size: 13px; line-height: 1.6; color: #5f6661;">
+                                    ${escapeHtml(input.footerNote)}
+                                  </td>
+                                </tr>
+                              </table>
+                            </td>
+                          </tr>
+                        `
+                        : ""
+                    }
+                  </table>
+                </td>
+              </tr>
+              <tr>
+                <td style="background-color: #2f312f; padding: 24px 32px 28px; border-radius: 0 0 8px 8px;">
+                  <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                    <tr>
+                      <td align="center" style="font-size: 12px; line-height: 1.4; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #c7cec9;">
+                        Need help with your booking or account?
+                      </td>
+                    </tr>
+                    <tr>
+                      <td align="center" style="padding-top: 14px; font-size: 13px; line-height: 1.7; color: #f0f1ee;">
+                        <a href="${escapeHtml(APP_SUPPORT_URL)}" style="color: #f0f1ee; text-decoration: none;">Support</a>
+                        <span style="color: #8f9791; padding: 0 10px;">|</span>
+                        <a href="${escapeHtml(APP_TERMS_URL)}" style="color: #f0f1ee; text-decoration: none;">Terms of Service</a>
+                        <span style="color: #8f9791; padding: 0 10px;">|</span>
+                        <a href="${escapeHtml(APP_TERMS_URL)}" style="color: #f0f1ee; text-decoration: none;">Privacy Policy</a>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td align="center" style="padding-top: 16px; font-size: 13px; line-height: 1.7; color: #c7cec9;">
+                        Contact us at
+                        <a href="mailto:${escapeHtml(APP_SUPPORT_EMAIL)}" style="color: #ffffff; text-decoration: none;">${escapeHtml(APP_SUPPORT_EMAIL)}</a>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td align="center" style="padding-top: 16px; border-top: 1px solid #434744; font-size: 12px; line-height: 1.6; color: #a5ada7;">
+                        If you didn't request this, you can safely ignore this email.<br />
+                        &copy; 2026 ${escapeHtml(APP_NAME)} Industrial Marketplace. All rights reserved.
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
     </div>
   `;
 }
@@ -233,7 +355,12 @@ export function initializeMailer(): { status: string; initialized: boolean } {
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error("[brevo-mailer] Failed to initialize at startup:", error);
+    logger.error("[brevo-mailer] Failed to initialize at startup", {
+      service: "brevo-mailer",
+      action: "initializeMailer",
+      error: errorMessage,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
 
     if (process.env.NODE_ENV === "production") {
       process.exit(1);
@@ -293,7 +420,9 @@ export const sendEmail = async ({
         ? responseBody.message
         : `Brevo API request failed with status ${response.status}`;
 
-    console.error("[brevo-mailer] sendEmail error:", {
+    logger.error("[brevo-mailer] sendEmail error", {
+      service: "brevo-mailer",
+      action: "sendEmail",
       to: email,
       subject: title,
       purpose,
@@ -310,7 +439,9 @@ export const sendEmail = async ({
       ? (responseBody.messageId ?? responseBody.messageIds?.[0] ?? null)
       : null;
 
-  console.log("[brevo-mailer] message sent successfully", {
+  logger.info("[brevo-mailer] message sent successfully", {
+    service: "brevo-mailer",
+    action: "sendEmail",
     to: email,
     subject: title,
     purpose,
@@ -331,12 +462,17 @@ export async function sendOtpEmail(input: SendOtpEmailInput) {
   const expiresAtLabel = formatDateTime(input.expiresAt);
 
   const body = `
-    <p style="margin: 0;">${escapeHtml(greeting)}</p>
-    <p style="margin: 18px 0 0;">${escapeHtml(
+    <p style="margin: 0; font-size: 24px; line-height: 1.3; font-weight: 600; letter-spacing: -0.02em; color: #1a1c1a;">${escapeHtml(greeting)}</p>
+    <p style="margin: 18px 0 0; font-size: 16px; line-height: 1.8; color: #414844;">${escapeHtml(
       input.message ?? "Use this code to complete your verification.",
     )}</p>
-    <div style="margin-top: 22px; font-size: 34px; font-weight: 700; color: #111827; letter-spacing: 0.28em;">
-      ${escapeHtml(formattedOtpCode)}
+    <div style="margin-top: 28px; border: 1px solid #d8ddd9; background-color: #f3f4f1; padding: 22px 18px; text-align: center; border-radius: 8px;">
+      <div style="font-size: 12px; line-height: 1.3; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: #5f6661;">
+        Verification code
+      </div>
+      <div style="margin-top: 12px; font-size: 38px; line-height: 1.1; font-weight: 700; color: #012d1d; letter-spacing: 0.24em;">
+        ${escapeHtml(formattedOtpCode)}
+      </div>
     </div>
   `;
 
@@ -357,11 +493,11 @@ export async function sendAccountEventEmail(input: SendAccountEventEmailInput) {
   const greeting = recipientName ? `Hi ${recipientName},` : "Hi there,";
 
   const body = `
-    <p style="margin: 0;">${escapeHtml(greeting)}</p>
-    <p style="margin: 18px 0 0; font-size: 16px; color: #4b5563;">
+    <p style="margin: 0; font-size: 24px; line-height: 1.3; font-weight: 600; letter-spacing: -0.02em; color: #1a1c1a;">${escapeHtml(greeting)}</p>
+    <p style="margin: 18px 0 0; font-size: 16px; line-height: 1.7; color: #5f6661; font-weight: 600;">
       ${escapeHtml(input.title)}
     </p>
-    <p style="margin: 18px 0 0;">${escapeHtml(input.message)}</p>
+    <p style="margin: 18px 0 0; font-size: 16px; line-height: 1.8; color: #414844;">${escapeHtml(input.message)}</p>
   `;
 
   return sendEmail({
@@ -382,11 +518,11 @@ export async function sendBookingEventEmail(input: SendBookingEventEmailInput) {
   const greeting = recipientName ? `Hi ${recipientName},` : "Hi there,";
 
   const body = `
-    <p style="margin: 0;">${escapeHtml(greeting)}</p>
-    <p style="margin: 18px 0 0; font-size: 16px; color: #4b5563;">
+    <p style="margin: 0; font-size: 24px; line-height: 1.3; font-weight: 600; letter-spacing: -0.02em; color: #1a1c1a;">${escapeHtml(greeting)}</p>
+    <p style="margin: 18px 0 0; font-size: 16px; line-height: 1.7; color: #5f6661; font-weight: 600;">
       ${escapeHtml(input.title)}
     </p>
-    <p style="margin: 18px 0 0;">${escapeHtml(input.message)}</p>
+    <p style="margin: 18px 0 0; font-size: 16px; line-height: 1.8; color: #414844;">${escapeHtml(input.message)}</p>
   `;
 
   return sendEmail({

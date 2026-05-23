@@ -1,3 +1,5 @@
+import { logger } from "./logger.js";
+
 type LogLevel = "error" | "warn";
 
 type ErrorLogInput = {
@@ -40,9 +42,9 @@ export function logServiceError({
   };
 
   if (level === "warn") {
-    console.warn("[service-error]", payload);
+    logger.warn("[service-error]", payload);
     return;
   }
 
-  console.error("[service-error]", payload);
+  logger.error("[service-error]", payload);
 }

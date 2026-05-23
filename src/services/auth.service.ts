@@ -18,6 +18,7 @@ import {
 import { db } from "../lib/db.js";
 import { logServiceError } from "../lib/error-logger.js";
 import { sendAccountEventEmail, sendOtpEmail } from "../lib/brevo-mailer.js";
+import { logger } from "../lib/logger.js";
 // import { sendOtpEmail } from "../lib/resend.js";
 import { checkSmsVerification, startSmsVerification } from "../lib/twilio.js";
 import {
@@ -324,7 +325,9 @@ async function findPublicUserById(id: string) {
 export async function registerUser(input: SignUpInput): Promise<SignUpResult> {
   const email = normalizeEmail(input.email);
 
-  console.log("[auth.service] Starting user registration", {
+  logger.info("[auth.service] Starting user registration", {
+    service: "auth.service",
+    action: "registerUser.start",
     email: maskEmailForLogs(email),
     role: input.role,
     timestamp: new Date().toISOString(),
@@ -336,14 +339,13 @@ export async function registerUser(input: SignUpInput): Promise<SignUpResult> {
   });
 
   if (existingUser) {
-    console.warn(
-      "[auth.service] Registration blocked because email already exists",
-      {
-        email: maskEmailForLogs(email),
-        existingUserId: existingUser.id,
-        timestamp: new Date().toISOString(),
-      },
-    );
+    logger.warn("[auth.service] Registration blocked because email already exists", {
+      service: "auth.service",
+      action: "registerUser.emailExists",
+      email: maskEmailForLogs(email),
+      existingUserId: existingUser.id,
+      timestamp: new Date().toISOString(),
+    });
     throw new AuthServiceError(
       "An account with this email already exists.",
       409,
@@ -356,14 +358,18 @@ export async function registerUser(input: SignUpInput): Promise<SignUpResult> {
   const otpHash = await hashOtp(otpCode);
   const otpExpiresAt = getOtpExpiresAt();
 
-  console.log("[auth.service] Signup credentials and OTP prepared", {
+  logger.info("[auth.service] Signup credentials and OTP prepared", {
+    service: "auth.service",
+    action: "registerUser.otpPrepared",
     email: maskEmailForLogs(email),
     otpExpiresAt: otpExpiresAt.toISOString(),
     timestamp: new Date().toISOString(),
   });
 
   const createdUser = await db.$transaction(async (tx) => {
-    console.log("[auth.service] Creating signup user and OTP records", {
+    logger.info("[auth.service] Creating signup user and OTP records", {
+      service: "auth.service",
+      action: "registerUser.transactionStart",
       email: maskEmailForLogs(email),
       timestamp: new Date().toISOString(),
     });
@@ -393,7 +399,9 @@ export async function registerUser(input: SignUpInput): Promise<SignUpResult> {
       },
     });
 
-    console.log("[auth.service] Signup user and OTP records created", {
+    logger.info("[auth.service] Signup user and OTP records created", {
+      service: "auth.service",
+      action: "registerUser.transactionCreated",
       userId: user.id,
       email: maskEmailForLogs(user.email),
       timestamp: new Date().toISOString(),
@@ -402,7 +410,9 @@ export async function registerUser(input: SignUpInput): Promise<SignUpResult> {
     return user;
   });
 
-  console.log("[auth.service] Sending signup OTP email", {
+  logger.info("[auth.service] Sending signup OTP email", {
+    service: "auth.service",
+    action: "registerUser.sendOtpStart",
     userId: createdUser.id,
     email: maskEmailForLogs(createdUser.email),
     timestamp: new Date().toISOString(),
@@ -436,7 +446,9 @@ export async function registerUser(input: SignUpInput): Promise<SignUpResult> {
     );
   }
 
-  console.log("[auth.service] Signup OTP email sent", {
+  logger.info("[auth.service] Signup OTP email sent", {
+    service: "auth.service",
+    action: "registerUser.sendOtpSuccess",
     userId: createdUser.id,
     email: maskEmailForLogs(createdUser.email),
     otpExpiresAt: otpExpiresAt.toISOString(),

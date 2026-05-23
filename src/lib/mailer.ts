@@ -283,7 +283,7 @@ function renderEmailSkeleton(input: SendEmailInput) {
           If you didn't request this, you can safely ignore this email.
         </p>
         <p style="font-size: 12px; color: #9ca3af; margin-top: 10px;">
-          &copy; 2024 ${escapeHtml(APP_NAME)} Industrial Marketplace.
+          &copy; 2026 ${escapeHtml(APP_NAME)} Industrial Marketplace.
         </p>
       </div>
     </div>

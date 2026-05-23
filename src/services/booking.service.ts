@@ -7,6 +7,7 @@ import {
 } from "@prisma/client";
 import { db } from "../lib/db.js";
 import { logServiceError } from "../lib/error-logger.js";
+import { logger } from "../lib/logger.js";
 import {
   canOwnerCompleteBookingStatus,
   canOwnerDisputeBookingStatus,
@@ -111,10 +112,15 @@ async function cleanupUploadedImages(publicIds: string[]) {
 
   deleteResults.forEach((result, index) => {
     if (result.status === "rejected") {
-      console.error(
-        `Failed to delete uploaded Cloudinary image ${publicIds[index] ?? "unknown"}:`,
-        result.reason,
-      );
+      logger.error("Failed to delete uploaded Cloudinary image", {
+        service: "booking.service",
+        action: "cleanupUploadedImages",
+        publicId: publicIds[index] ?? "unknown",
+        reason:
+          result.reason instanceof Error
+            ? result.reason.message
+            : String(result.reason),
+      });
     }
   });
 }
@@ -2095,7 +2101,11 @@ export async function processCashfreeWebhook(
     throw new BookingServiceError("Webhook event type is missing.", 400, "WEBHOOK_EVENT_INVALID");
   }
 
-  console.log(`[cashfree:webhook] received ${eventType}`);
+  logger.info("[cashfree:webhook] received", {
+    service: "booking.service",
+    action: "processCashfreeWebhook.received",
+    eventType,
+  });
 
   const paymentEntity = body.data?.payment ?? null;
   const orderEntity = body.data?.order ?? null;
@@ -2116,9 +2126,13 @@ export async function processCashfreeWebhook(
   );
 
   if (!storedEvent) {
-    console.log(
-      `[cashfree:webhook] duplicate ignored event=${eventType} entity=${entityId ?? "none"} key=${eventId}`,
-    );
+    logger.warn("[cashfree:webhook] duplicate ignored", {
+      service: "booking.service",
+      action: "processCashfreeWebhook.duplicate",
+      eventType,
+      entityId: entityId ?? "none",
+      eventId,
+    });
     return { duplicated: true };
   }
 
@@ -2137,9 +2151,11 @@ export async function processCashfreeWebhook(
         : null;
 
     if (!orderId || !paymentId || amount == null || !currency) {
-      console.error(
-        `[cashfree:webhook] success payload invalid entity=${entityId ?? "none"}`,
-      );
+      logger.error("[cashfree:webhook] success payload invalid", {
+        service: "booking.service",
+        action: "processCashfreeWebhook.invalidSuccessPayload",
+        entityId: entityId ?? "none",
+      });
       throw new BookingServiceError(
         "The payment success payload is incomplete.",
         400,
@@ -2164,23 +2180,36 @@ export async function processCashfreeWebhook(
     });
 
     if (!booking) {
-      console.error(
-        `[cashfree:webhook] booking not found for payment order=${orderId} payment=${paymentId}`,
-      );
+      logger.error("[cashfree:webhook] booking not found for captured payment", {
+        service: "booking.service",
+        action: "processCashfreeWebhook.bookingNotFound",
+        orderId,
+        paymentId,
+      });
       throw new BookingServiceError("Booking not found for captured payment.", 404, "BOOKING_NOT_FOUND");
     }
 
-    console.log(
-      `[cashfree:webhook] success matched booking=${booking.id} order=${orderId} payment=${paymentId}`,
-    );
+    logger.info("[cashfree:webhook] success matched booking", {
+      service: "booking.service",
+      action: "processCashfreeWebhook.bookingMatched",
+      bookingId: booking.id,
+      orderId,
+      paymentId,
+    });
 
     if (
       booking.paymentAmountInPaise !== toPaise(amount) ||
       (booking.paymentCurrency ?? booking.currency) !== currency
     ) {
-      console.error(
-        `[cashfree:webhook] amount mismatch booking=${booking.id} expected=${booking.paymentAmountInPaise}:${booking.paymentCurrency ?? booking.currency} received=${amount}:${currency}`,
-      );
+      logger.error("[cashfree:webhook] amount mismatch", {
+        service: "booking.service",
+        action: "processCashfreeWebhook.amountMismatch",
+        bookingId: booking.id,
+        expectedAmountInPaise: booking.paymentAmountInPaise,
+        expectedCurrency: booking.paymentCurrency ?? booking.currency,
+        receivedAmount: amount,
+        receivedCurrency: currency,
+      });
       throw new BookingServiceError(
         "Captured payment does not match the expected booking amount.",
         409,
@@ -2189,9 +2218,13 @@ export async function processCashfreeWebhook(
     }
 
     await finalizeCapturedBookingPayment(booking.id, paymentId);
-    console.log(
-      `[cashfree:webhook] success processed booking=${booking.id} payment=${paymentId} status=CONFIRMED`,
-    );
+    logger.info("[cashfree:webhook] success processed", {
+      service: "booking.service",
+      action: "processCashfreeWebhook.successProcessed",
+      bookingId: booking.id,
+      paymentId,
+      status: "CONFIRMED",
+    });
   }
 
   if (eventType === "PAYMENT_FAILED_WEBHOOK") {
@@ -2215,9 +2248,12 @@ export async function processCashfreeWebhook(
           lastPaymentError: errorDescription,
         },
       });
-      console.log(
-        `[cashfree:webhook] payment failed recorded order=${orderId} reason=${errorDescription}`,
-      );
+      logger.warn("[cashfree:webhook] payment failed recorded", {
+        service: "booking.service",
+        action: "processCashfreeWebhook.paymentFailed",
+        orderId,
+        reason: errorDescription,
+      });
     }
   }
 

@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import { logger } from "../lib/logger.js";
 import {
   approveBookingRequest,
   BookingServiceError,
@@ -45,7 +46,12 @@ function handleBookingError(res: Response, error: unknown) {
     return sendError(res, error.statusCode, error.message, { code: error.code });
   }
 
-  console.error("Booking controller error:", error);
+  logger.error("Booking controller error", {
+    service: "booking.controller",
+    action: "handleBookingError",
+    error: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack : undefined,
+  });
   return sendError(res, 500, "Something went wrong.");
 }
 

@@ -5,6 +5,7 @@ import {
 } from "../configs/equipment.config.js";
 import { db } from "../lib/db.js";
 import { logServiceError } from "../lib/error-logger.js";
+import { logger } from "../lib/logger.js";
 import {
   deleteCloudinaryImage,
   uploadEquipmentImage,
@@ -645,10 +646,15 @@ async function cleanupUploadedImages(publicIds: string[]) {
 
   deleteResults.forEach((result, index) => {
     if (result.status === "rejected") {
-      console.error(
-        `Failed to delete uploaded Cloudinary image ${publicIds[index] ?? "unknown"}:`,
-        result.reason,
-      );
+      logger.error("Failed to delete uploaded Cloudinary image", {
+        service: "equipment.service",
+        action: "cleanupUploadedImages",
+        publicId: publicIds[index] ?? "unknown",
+        reason:
+          result.reason instanceof Error
+            ? result.reason.message
+            : String(result.reason),
+      });
     }
   });
 }

@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { AUTH_COOKIE_NAME } from "../configs/auth.config.js";
+import { logger } from "../lib/logger.js";
 import {
   AuthServiceError,
   getDashboardMetrics,
@@ -94,13 +95,20 @@ function handleAuthError(res: Response, error: unknown) {
     return sendError(res, error.statusCode, error.message, { code: error.code });
   }
 
-  console.error("Auth controller error:", error);
+  logger.error("Auth controller error", {
+    service: "auth.controller",
+    action: "handleAuthError",
+    error: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack : undefined,
+  });
   return sendError(res, 500, "Something went wrong.");
 }
 
 export async function signUpController(req: Request, res: Response) {
   try {
-    console.log("[auth.controller] Signup payload validated, entering controller", {
+    logger.info("[auth.controller] Signup payload validated, entering controller", {
+      service: "auth.controller",
+      action: "signUpController.start",
       path: req.originalUrl,
       ip: req.ip,
       email: maskEmailForLogs(req.body?.email),
@@ -110,7 +118,9 @@ export async function signUpController(req: Request, res: Response) {
 
     const result = await registerUser(req.body);
 
-    console.log("[auth.controller] Signup completed successfully", {
+    logger.info("[auth.controller] Signup completed successfully", {
+      service: "auth.controller",
+      action: "signUpController.success",
       userId: result.user.id,
       email: maskEmailForLogs(result.user.email),
       otpExpiresAt: result.otpExpiresAt.toISOString(),
@@ -122,7 +132,9 @@ export async function signUpController(req: Request, res: Response) {
       otpExpiresAt: result.otpExpiresAt,
     });
   } catch (error) {
-    console.error("[auth.controller] Signup failed", {
+    logger.error("[auth.controller] Signup failed", {
+      service: "auth.controller",
+      action: "signUpController.error",
       email: maskEmailForLogs(req.body?.email),
       error: error instanceof Error ? error.message : String(error),
       timestamp: new Date().toISOString(),

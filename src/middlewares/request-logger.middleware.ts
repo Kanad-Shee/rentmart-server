@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
+import { logger } from "../lib/logger.js";
 
 function sanitizeValue(value: unknown): unknown {
   if (Array.isArray(value)) {
@@ -43,7 +44,7 @@ function sanitizeHeaders(headers: Request["headers"]) {
 export function requestLogger(req: Request, res: Response, next: NextFunction) {
   const startedAt = Date.now();
 
-  console.log("[request] incoming", {
+  logger.info("[request] incoming", {
     method: req.method,
     path: req.originalUrl,
     ip: req.ip,
@@ -53,7 +54,7 @@ export function requestLogger(req: Request, res: Response, next: NextFunction) {
   });
 
   res.on("finish", () => {
-    console.log("[request] completed", {
+    logger.info("[request] completed", {
       method: req.method,
       path: req.originalUrl,
       statusCode: res.statusCode,
@@ -63,7 +64,7 @@ export function requestLogger(req: Request, res: Response, next: NextFunction) {
 
   res.on("close", () => {
     if (!res.writableEnded) {
-      console.warn("[request] aborted", {
+      logger.warn("[request] aborted", {
         method: req.method,
         path: req.originalUrl,
         durationMs: Date.now() - startedAt,

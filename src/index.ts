@@ -10,7 +10,9 @@ import { supportQueryRouter } from "./routes/support-query.routes.js";
 import { wishlistRouter } from "./routes/wishlist.routes.js";
 import { initializeMailer } from "./lib/brevo-mailer.js";
 import { initializeDatabase } from "./lib/db.js";
+import { logger } from "./lib/logger.js";
 import { initializeRedis } from "./lib/redis.js";
+import { requestLogger } from "./middlewares/request-logger.middleware.js";
 
 const app = express();
 const port = 8080;
@@ -18,6 +20,7 @@ const port = 8080;
 app.use("/payments/cashfree/webhook", express.raw({ type: "*/*" }));
 app.use(express.json());
 app.use(cookieParser());
+app.use(requestLogger);
 
 app.get("/", (req: Request, res: Response) => {
   res.json({ success: true, message: "Server is healthy and running fine!" });
@@ -33,26 +36,40 @@ app.use("/support-queries", supportQueryRouter);
 app.use("/wishlists", wishlistRouter);
 
 app.listen(port, async () => {
-  console.log("\n" + "=".repeat(60));
-  console.log("🚀 RentMart Server Starting Up");
-  console.log("=".repeat(60));
+  logger.info("RentMart server starting up", {
+    service: "server",
+    action: "startup",
+    port,
+  });
 
-  // Initialize mail transporter
   const mailerStatus = initializeMailer();
-  console.log(`✓ Mail Transporter: ${mailerStatus.status}`);
+  logger.info("Mailer initialization completed", {
+    service: "server",
+    action: "initializeMailer",
+    initialized: mailerStatus.initialized,
+    status: mailerStatus.status,
+  });
 
-  // Initialize database
   const dbStatus = await initializeDatabase();
-  console.log(`${dbStatus.connected ? "✓" : "✗"} Database: ${dbStatus.status}`);
+  logger.info("Database initialization completed", {
+    service: "server",
+    action: "initializeDatabase",
+    connected: dbStatus.connected,
+    status: dbStatus.status,
+  });
 
-  // Initialize Redis
   const redisStatus = await initializeRedis();
-  console.log(
-    `${redisStatus.connected ? "✓" : "⚠"} Redis: ${redisStatus.status}`,
-  );
+  logger.info("Redis initialization completed", {
+    service: "server",
+    action: "initializeRedis",
+    connected: redisStatus.connected,
+    status: redisStatus.status,
+  });
 
-  console.log(`✓ Server: Running on port ${port}`);
-  console.log("=".repeat(60));
-  console.log(`📍 Environment: ${process.env.NODE_ENV || "development"}`);
-  console.log("=".repeat(60) + "\n");
+  logger.info("Server is running", {
+    service: "server",
+    action: "listen",
+    port,
+    environment: process.env.NODE_ENV || "development",
+  });
 });

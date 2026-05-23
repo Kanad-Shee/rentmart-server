@@ -3,6 +3,7 @@ import jwt, { type JwtPayload } from "jsonwebtoken";
 import { UserRole } from "@prisma/client";
 import { db } from "../lib/db.js";
 import { AUTH_COOKIE_NAME, AUTH_TOKEN_ISSUER } from "../configs/auth.config.js";
+import { logger } from "../lib/logger.js";
 import type { AuthenticatedUser } from "../types/auth.js";
 
 type TokenPayload = JwtPayload & {
@@ -117,7 +118,12 @@ export const authenticateUser: RequestHandler = async (req, res, next) => {
       return sendUnauthorized(res);
     }
 
-    console.error("Authenticate user middleware error:", error);
+    logger.error("Authenticate user middleware error", {
+      service: "auth.middleware",
+      action: "authenticateUser",
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     return res.status(500).json({
       success: false,
       message: "Something went wrong.",
@@ -139,7 +145,12 @@ export const attachOptionalUser: RequestHandler = async (req, _res, next) => {
       return next();
     }
 
-    console.error("Optional auth middleware error:", error);
+    logger.error("Optional auth middleware error", {
+      service: "auth.middleware",
+      action: "attachOptionalUser",
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     return next();
   }
 };
