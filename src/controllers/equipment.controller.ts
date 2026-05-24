@@ -7,6 +7,9 @@ import {
   createEquipmentReview,
   deleteEquipmentListing,
   EquipmentServiceError,
+  generateEquipmentListingDescription,
+  generateEquipmentReviewSummary,
+  getAdminEquipmentReviewSummaryListings,
   getEquipmentReviewDetails,
   getFeaturedEquipmentListings,
   getEquipmentAddressSuggestions,
@@ -17,19 +20,23 @@ import {
   getPendingEquipmentListings,
   getPublicEquipmentListingById,
   rejectEquipmentListing,
+  updateEquipmentReviewSummaryVisibility,
   updateEquipmentReview,
   updateOwnerEquipmentListing,
 } from "../services/equipment.service.js";
 import type {
   AddressSuggestionsInput,
+  AdminEquipmentReviewSummaryQueryInput,
   CreateEquipmentInput,
   CreateDraftEquipmentInput,
   CreateEquipmentReviewInput,
+  GenerateListingDescriptionInput,
   GeocodeEquipmentInput,
   OwnerEquipmentQueryInput,
   PendingEquipmentQueryInput,
   PlaceIdInput,
   RejectEquipmentInput,
+  UpdateReviewSummaryVisibilityInput,
   UpdateEquipmentReviewInput,
   UpdateOwnerEquipmentInput,
 } from "../validators/equipment.schema.js";
@@ -142,6 +149,26 @@ export async function createDraftEquipmentController(req: Request, res: Response
     const equipment = await createDraftEquipmentListing(ownerId, input, files);
 
     return sendSuccess(res, 201, "Draft listing saved successfully.", equipment);
+  } catch (error) {
+    return handleEquipmentError(res, error);
+  }
+}
+
+export async function generateEquipmentListingDescriptionController(
+  req: Request,
+  res: Response,
+) {
+  try {
+    const ownerId = getAuthenticatedOwnerId(req);
+
+    if (!ownerId) {
+      return sendError(res, 401, "Unauthorized.");
+    }
+
+    const input = req.body as GenerateListingDescriptionInput;
+    const result = await generateEquipmentListingDescription(input);
+
+    return sendSuccess(res, 200, "Listing description generated successfully.", result);
   } catch (error) {
     return handleEquipmentError(res, error);
   }
@@ -292,6 +319,21 @@ export async function getPendingEquipmentController(req: Request, res: Response)
   }
 }
 
+export async function getAdminEquipmentReviewSummaryListingsController(
+  req: Request,
+  res: Response,
+) {
+  try {
+    const listings = await getAdminEquipmentReviewSummaryListings(
+      req.query as unknown as AdminEquipmentReviewSummaryQueryInput,
+    );
+
+    return sendSuccess(res, 200, "Review summary listings fetched successfully.", listings);
+  } catch (error) {
+    return handleEquipmentError(res, error);
+  }
+}
+
 export async function approveEquipmentController(req: Request, res: Response) {
   try {
     const adminId = getAuthenticatedOwnerId(req);
@@ -393,6 +435,58 @@ export async function updateEquipmentReviewController(req: Request, res: Respons
     const reviews = await updateEquipmentReview(renterId, equipmentId, input, files);
 
     return sendSuccess(res, 200, "Equipment review updated successfully.", reviews);
+  } catch (error) {
+    return handleEquipmentError(res, error);
+  }
+}
+
+export async function generateEquipmentReviewSummaryController(
+  req: Request,
+  res: Response,
+) {
+  try {
+    const adminId = getAuthenticatedOwnerId(req);
+    const equipmentId = getEquipmentIdParam(req);
+
+    if (!adminId) {
+      return sendError(res, 401, "Unauthorized.");
+    }
+
+    if (!equipmentId) {
+      return sendError(res, 400, "Equipment id is required.");
+    }
+
+    const summary = await generateEquipmentReviewSummary(equipmentId);
+
+    return sendSuccess(res, 200, "Review summary generated successfully.", summary);
+  } catch (error) {
+    return handleEquipmentError(res, error);
+  }
+}
+
+export async function updateEquipmentReviewSummaryVisibilityController(
+  req: Request,
+  res: Response,
+) {
+  try {
+    const adminId = getAuthenticatedOwnerId(req);
+    const equipmentId = getEquipmentIdParam(req);
+
+    if (!adminId) {
+      return sendError(res, 401, "Unauthorized.");
+    }
+
+    if (!equipmentId) {
+      return sendError(res, 400, "Equipment id is required.");
+    }
+
+    const input = req.body as UpdateReviewSummaryVisibilityInput;
+    const result = await updateEquipmentReviewSummaryVisibility(
+      equipmentId,
+      input.visible,
+    );
+
+    return sendSuccess(res, 200, "Review summary visibility updated successfully.", result);
   } catch (error) {
     return handleEquipmentError(res, error);
   }

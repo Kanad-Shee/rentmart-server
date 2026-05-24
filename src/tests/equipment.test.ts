@@ -3,10 +3,13 @@
 import { describe, expect, it } from "bun:test";
 import { validateImageFiles } from "../lib/equipment-image-validation.js";
 import {
+  adminEquipmentReviewSummaryQuerySchema,
   createEquipmentReviewSchema,
   createEquipmentSchema,
+  generateListingDescriptionSchema,
   geocodeEquipmentSchema,
   rejectEquipmentSchema,
+  updateReviewSummaryVisibilitySchema,
   updateEquipmentReviewSchema,
 } from "../validators/equipment.schema.js";
 
@@ -78,6 +81,33 @@ describe("equipment schemas", () => {
 
   it("accepts a valid equipment review payload", () => {
     const result = createEquipmentReviewSchema.safeParse(validReviewPayload);
+
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts a valid listing description generation payload", () => {
+    const result = generateListingDescriptionSchema.safeParse({
+      title: "Excavator 320",
+      description: "Strong machine for earthmoving and trench work.",
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts a valid admin review summary query payload", () => {
+    const result = adminEquipmentReviewSummaryQuerySchema.safeParse({
+      page: 2,
+      pageSize: 20,
+      search: "excavator",
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts a valid review summary visibility payload", () => {
+    const result = updateReviewSummaryVisibilitySchema.safeParse({
+      visible: false,
+    });
 
     expect(result.success).toBe(true);
   });

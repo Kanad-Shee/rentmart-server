@@ -98,6 +98,24 @@ export const pendingEquipmentQuerySchema = paginationQuerySchema.extend({
   search: z.string().trim().max(100, "Search is too long.").optional(),
 });
 
+export const adminEquipmentReviewSummaryQuerySchema =
+  paginationQuerySchema.extend({
+    search: z.string().trim().max(100, "Search is too long.").optional(),
+  });
+
+export const generateListingDescriptionSchema = z.object({
+  title: z
+    .string({ message: "Title is required." })
+    .trim()
+    .min(2, "Enter a valid title.")
+    .max(100, "Title is too long."),
+  description: equipmentDescriptionSchema,
+});
+
+export const updateReviewSummaryVisibilitySchema = z.object({
+  visible: z.boolean({ message: "Visibility is required." }),
+});
+
 const reviewTitleSchema = z
   .string({ message: "Review title is required." })
   .trim()
@@ -144,6 +162,15 @@ export type RejectEquipmentInput = z.infer<typeof rejectEquipmentSchema>;
 export type OwnerEquipmentQueryInput = z.infer<typeof ownerEquipmentQuerySchema>;
 export type PendingEquipmentQueryInput = z.infer<
   typeof pendingEquipmentQuerySchema
+>;
+export type AdminEquipmentReviewSummaryQueryInput = z.infer<
+  typeof adminEquipmentReviewSummaryQuerySchema
+>;
+export type GenerateListingDescriptionInput = z.infer<
+  typeof generateListingDescriptionSchema
+>;
+export type UpdateReviewSummaryVisibilityInput = z.infer<
+  typeof updateReviewSummaryVisibilitySchema
 >;
 export type CreateEquipmentReviewInput = z.infer<typeof createEquipmentReviewSchema>;
 export type UpdateEquipmentReviewInput = z.infer<typeof updateEquipmentReviewSchema>;

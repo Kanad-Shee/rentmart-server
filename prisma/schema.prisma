@@ -164,6 +164,10 @@ model Equipment {
   ownerId           String
   title             String
   description       String?
+  reviewSummaryText String?
+  reviewSummaryGeneratedAt DateTime?
+  reviewSummaryReviewCount Int?
+  reviewSummaryVisible Boolean        @default(true)
   categoryId        String
   price             Float
   deliveryRadius    Int

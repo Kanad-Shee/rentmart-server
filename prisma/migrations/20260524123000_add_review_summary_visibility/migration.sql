@@ -1,0 +1,2 @@
+ALTER TABLE "Equipment"
+ADD COLUMN "reviewSummaryVisible" BOOLEAN NOT NULL DEFAULT TRUE;

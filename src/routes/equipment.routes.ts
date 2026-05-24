@@ -8,11 +8,14 @@ import {
   approveEquipmentController,
   createDraftEquipmentController,
   createEquipmentController,
+  generateEquipmentListingDescriptionController,
+  generateEquipmentReviewSummaryController,
   createEquipmentReviewController,
   deleteEquipmentController,
   geocodeEquipmentController,
   geocodeEquipmentPlaceIdController,
   getFeaturedEquipmentController,
+  getAdminEquipmentReviewSummaryListingsController,
   getMyEquipmentController,
   getPendingEquipmentController,
   getPublicEquipmentController,
@@ -21,14 +24,17 @@ import {
   rejectEquipmentController,
   submitOwnerEquipmentController,
   updateEquipmentReviewController,
+  updateEquipmentReviewSummaryVisibilityController,
   updateOwnerEquipmentController,
 } from "../controllers/equipment.controller.js";
 import {
   addressSuggestionsSchema,
+  adminEquipmentReviewSummaryQuerySchema,
   createEquipmentSchema,
   createDraftEquipmentSchema,
   createEquipmentReviewSchema,
   equipmentIdSchema,
+  generateListingDescriptionSchema,
   geocodeEquipmentSchema,
   ownerEquipmentQuerySchema,
   pendingEquipmentQuerySchema,
@@ -36,6 +42,7 @@ import {
   rejectEquipmentSchema,
   updateEquipmentReviewSchema,
   updateOwnerEquipmentSchema,
+  updateReviewSummaryVisibilitySchema,
 } from "../validators/equipment.schema.js";
 
 const equipmentRouter = Router();
@@ -90,6 +97,14 @@ equipmentRouter.post(
 );
 
 equipmentRouter.post(
+  "/ai/listing-description",
+  authenticateUser,
+  requireRole(UserRole.OWNER),
+  validateRequest(generateListingDescriptionSchema),
+  generateEquipmentListingDescriptionController
+);
+
+equipmentRouter.post(
   "/drafts",
   authenticateUser,
   requireRole(UserRole.OWNER),
@@ -133,11 +148,36 @@ equipmentRouter.delete(
 );
 
 equipmentRouter.get(
+  "/admin/review-summaries",
+  authenticateUser,
+  requireRole(UserRole.ADMIN),
+  validateRequest(adminEquipmentReviewSummaryQuerySchema, "query"),
+  getAdminEquipmentReviewSummaryListingsController
+);
+
+equipmentRouter.get(
   "/pending",
   authenticateUser,
   requireRole(UserRole.ADMIN),
   validateRequest(pendingEquipmentQuerySchema, "query"),
   getPendingEquipmentController
+);
+
+equipmentRouter.patch(
+  "/:id/review-summary/generate",
+  authenticateUser,
+  requireRole(UserRole.ADMIN),
+  validateRequest(equipmentIdSchema, "params"),
+  generateEquipmentReviewSummaryController
+);
+
+equipmentRouter.patch(
+  "/:id/review-summary/visibility",
+  authenticateUser,
+  requireRole(UserRole.ADMIN),
+  validateRequest(equipmentIdSchema, "params"),
+  validateRequest(updateReviewSummaryVisibilitySchema),
+  updateEquipmentReviewSummaryVisibilityController
 );
 
 equipmentRouter.patch(

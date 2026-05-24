@@ -5,6 +5,7 @@ import {
 } from "../configs/equipment.config.js";
 import { db } from "../lib/db.js";
 import { logServiceError } from "../lib/error-logger.js";
+import { generateGeminiText } from "../lib/gemini.js";
 import { logger } from "../lib/logger.js";
 import {
   createPaginatedResult,
@@ -26,13 +27,16 @@ import {
   createEquipmentRejectedNotification,
 } from "./notification.service.js";
 import type {
+  EquipmentReviewSummaryDigest,
   EquipmentReviewSummary,
   EquipmentReviewViewerState,
   SafeEquipment,
 } from "../types/equipment.js";
 import type {
+  AdminEquipmentReviewSummaryQueryInput,
   CreateEquipmentInput,
   CreateDraftEquipmentInput,
+  GenerateListingDescriptionInput,
   OwnerEquipmentQueryInput,
   PendingEquipmentQueryInput,
   CreateEquipmentReviewInput,
@@ -72,6 +76,10 @@ type EquipmentRow = {
   status: string;
   rejectionReason: string | null;
   reviewedAt: Date | null;
+  reviewSummaryText: string | null;
+  reviewSummaryGeneratedAt: Date | null;
+  reviewSummaryReviewCount: number | null;
+  reviewSummaryVisible: boolean;
   createdAt: Date;
   updatedAt: Date;
   categoryTitle: string;
@@ -91,6 +99,12 @@ type EquipmentImageRow = {
 
 type WishlistItemRow = {
   equipmentId: string;
+};
+
+type EquipmentReviewAggregateRow = {
+  equipmentId: string;
+  averageRating: number | null;
+  reviewCount: bigint;
 };
 
 export class EquipmentServiceError extends Error {
@@ -116,6 +130,7 @@ function mapRowToPublicEquipment(
   row: EquipmentRow,
   images: EquipmentImageRow[],
   isWishlisted = false,
+  options?: { includeHiddenReviewSummary?: boolean },
 ): SafeEquipment {
   if (!row.categoryId) {
     throw new EquipmentServiceError(
@@ -157,6 +172,19 @@ function mapRowToPublicEquipment(
     status: row.status as EquipmentStatusValue,
     rejectionReason: row.rejectionReason,
     reviewedAt: row.reviewedAt,
+    reviewSummaryVisible: row.reviewSummaryVisible,
+    reviewSummary:
+      row.reviewSummaryText &&
+      row.reviewSummaryGeneratedAt &&
+      row.reviewSummaryReviewCount !== null &&
+      (options?.includeHiddenReviewSummary || row.reviewSummaryVisible)
+        ? {
+            text: row.reviewSummaryText,
+            generatedAt: row.reviewSummaryGeneratedAt,
+            reviewCount: row.reviewSummaryReviewCount,
+            visible: row.reviewSummaryVisible,
+          }
+        : null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     images: images
@@ -168,6 +196,115 @@ function mapRowToPublicEquipment(
       })),
     isWishlisted,
   };
+}
+
+function computeAverageRating(reviews: Array<{ rating: number }>) {
+  if (reviews.length === 0) {
+    return null;
+  }
+
+  return (
+    Math.round(
+      (reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length) *
+        10,
+    ) / 10
+  );
+}
+
+function mapAggregateByEquipmentId(rows: EquipmentReviewAggregateRow[]) {
+  return rows.reduce<
+    Record<
+      string,
+      {
+        averageRating: number | null;
+        reviewCount: number;
+      }
+    >
+  >((grouped, row) => {
+    grouped[row.equipmentId] = {
+      averageRating:
+        typeof row.averageRating === "number"
+          ? Number(row.averageRating.toFixed(1))
+          : null,
+      reviewCount: Number(row.reviewCount),
+    };
+    return grouped;
+  }, {});
+}
+
+function sanitizeGeneratedText(value: string, maxLength: number) {
+  return value.replace(/\s+/g, " ").trim().slice(0, maxLength).trim();
+}
+
+function buildListingDescriptionPrompt(input: GenerateListingDescriptionInput) {
+  const currentDescription = input.description?.trim();
+
+  if (currentDescription) {
+    return [
+      "You are writing marketplace copy for a heavy equipment rental listing.",
+      "Rewrite and improve the owner's draft while preserving the same intent.",
+      "Keep it concise, practical, and renter-friendly.",
+      "Focus on what the machine is, the kind of day-to-day work it helps with, and the common job-site situations where it is useful.",
+      "Describe the item in a natural, informative way instead of sounding like a sales or support message.",
+      "Do not invent technical specs, attachments, pricing, guarantees, or condition claims that are not supported by the input.",
+      "Do not ask the renter to contact the owner, discuss pricing, confirm availability, or review rental terms.",
+      "Do not include calls to action.",
+      "Do not use bullet points or headings.",
+      "Return plain description text only.",
+      "",
+      `Listing title: ${input.title.trim()}`,
+      `Owner draft: ${currentDescription}`,
+    ].join("\n");
+  }
+
+  return [
+    "You are writing marketplace copy for a heavy equipment rental listing.",
+    "Write a short, practical description for renters based only on the listing title.",
+    "Keep it concise, readable, and suitable for a public equipment marketplace.",
+    "Focus on what the item is, how it helps with daily work, and the kinds of tasks or projects it is commonly used for.",
+    "The description should help a renter quickly understand the machine's role and usefulness.",
+    "Do not invent technical specs, attachments, pricing, guarantees, or condition claims that are not supported by the title.",
+    "Do not ask the renter to contact the owner, confirm availability, discuss rental terms, or take any next step.",
+    "Do not include calls to action or customer-support style wording.",
+    "Do not use bullet points or headings.",
+    "Return plain description text only.",
+    "",
+    `Listing title: ${input.title.trim()}`,
+  ].join("\n");
+}
+
+function buildReviewSummaryPrompt(input: {
+  title: string;
+  averageRating: number | null;
+  reviewCount: number;
+  reviews: Array<{
+    rating: number;
+    title: string;
+    description: string;
+  }>;
+}) {
+  const serializedReviews = input.reviews
+    .map(
+      (review, index) =>
+        `Review ${index + 1}\nRating: ${review.rating}/5\nTitle: ${review.title}\nText: ${review.description}`,
+    )
+    .join("\n\n");
+
+  return [
+    "You are summarizing product reviews for a public ecommerce-style equipment listing.",
+    "Write one short paragraph that highlights only the most repeated strengths or concerns from the reviews.",
+    "Keep it brief, high-signal, and shopper-friendly.",
+    "Do not mention reviewer names, personal details, or individual stories.",
+    "Do not mention that AI generated the summary.",
+    "Do not use bullet points or headings.",
+    "Return plain summary text only.",
+    "",
+    `Listing title: ${input.title}`,
+    `Average rating: ${input.averageRating ?? "N/A"}`,
+    `Review count: ${input.reviewCount}`,
+    "",
+    serializedReviews,
+  ].join("\n");
 }
 
 function ensureAllowedStatus(status: string): EquipmentStatusValue {
@@ -249,6 +386,22 @@ async function queryEquipmentReviews(equipmentId: string) {
   });
 
   return reviews.map(mapEquipmentReview);
+}
+
+async function queryEquipmentReviewAggregates(equipmentIds: string[]) {
+  if (equipmentIds.length === 0) {
+    return [];
+  }
+
+  return db.$queryRaw<EquipmentReviewAggregateRow[]>(Prisma.sql`
+    SELECT
+      r."equipmentId",
+      ROUND(AVG(r."rating")::numeric, 1)::float8 AS "averageRating",
+      COUNT(*)::bigint AS "reviewCount"
+    FROM "EquipmentReview" r
+    WHERE r."equipmentId" IN (${Prisma.join(equipmentIds)})
+    GROUP BY r."equipmentId"
+  `);
 }
 
 async function buildEquipmentReviewViewerState(
@@ -357,14 +510,7 @@ async function attachReviewDetails(
 ): Promise<SafeEquipment> {
   const reviews = await queryEquipmentReviews(equipment.id);
   const reviewCount = reviews.length;
-  const averageRating =
-    reviewCount > 0
-      ? Math.round(
-          (reviews.reduce((sum, review) => sum + review.rating, 0) /
-            reviewCount) *
-            10,
-        ) / 10
-      : null;
+  const averageRating = computeAverageRating(reviews);
 
   return {
     ...equipment,
@@ -462,6 +608,10 @@ async function queryEquipmentByIds(equipmentIds: string[]) {
       e."status",
       e."rejectionReason",
       e."reviewedAt",
+      e."reviewSummaryText",
+      e."reviewSummaryGeneratedAt",
+      e."reviewSummaryReviewCount",
+      e."reviewSummaryVisible",
       e."createdAt",
       e."updatedAt",
       c."title" AS "categoryTitle",
@@ -554,6 +704,10 @@ async function queryEquipmentByOwner(
       e."status",
       e."rejectionReason",
       e."reviewedAt",
+      e."reviewSummaryText",
+      e."reviewSummaryGeneratedAt",
+      e."reviewSummaryReviewCount",
+      e."reviewSummaryVisible",
       e."createdAt",
       e."updatedAt",
       c."title" AS "categoryTitle",
@@ -633,6 +787,10 @@ async function queryEquipmentByStatus(
       e."status",
       e."rejectionReason",
       e."reviewedAt",
+      e."reviewSummaryText",
+      e."reviewSummaryGeneratedAt",
+      e."reviewSummaryReviewCount",
+      e."reviewSummaryVisible",
       e."createdAt",
       e."updatedAt",
       c."title" AS "categoryTitle",
@@ -701,6 +859,10 @@ async function queryPublicEquipmentByCategory(categoryId?: string) {
       e."status",
       e."rejectionReason",
       e."reviewedAt",
+      e."reviewSummaryText",
+      e."reviewSummaryGeneratedAt",
+      e."reviewSummaryReviewCount",
+      e."reviewSummaryVisible",
       e."createdAt",
       e."updatedAt",
       c."title" AS "categoryTitle",
@@ -1174,6 +1336,50 @@ export async function getPendingEquipmentListings(
   );
 }
 
+export async function getAdminEquipmentReviewSummaryListings(
+  input: AdminEquipmentReviewSummaryQueryInput,
+): Promise<PaginatedResult<SafeEquipment>> {
+  const pagination = normalizePagination(input);
+  const [equipmentRows, totalItems] = await Promise.all([
+    queryEquipmentByStatus("ACTIVE", {
+      search: input.search,
+      limit: pagination.take,
+      offset: pagination.skip,
+    }),
+    countEquipmentByStatus("ACTIVE", input.search),
+  ]);
+  const equipmentIds = equipmentRows.map((row) => row.id);
+  const [imageRows, aggregateRows] = await Promise.all([
+    queryEquipmentImagesByIds(equipmentIds),
+    queryEquipmentReviewAggregates(equipmentIds),
+  ]);
+  const groupedImages = groupImagesByEquipmentId(imageRows);
+  const aggregates = mapAggregateByEquipmentId(aggregateRows);
+
+  return createPaginatedResult(
+    equipmentRows.map((row) => {
+      const aggregate = aggregates[row.id];
+      const listing = mapRowToPublicEquipment(
+        row,
+        groupedImages[row.id] ?? [],
+        false,
+        { includeHiddenReviewSummary: true },
+      );
+
+      return {
+        ...listing,
+        averageRating: aggregate?.averageRating ?? null,
+        reviewCount: aggregate?.reviewCount ?? 0,
+      };
+    }),
+    {
+      page: pagination.page,
+      pageSize: pagination.pageSize,
+    },
+    totalItems,
+  );
+}
+
 export async function getFeaturedEquipmentListings(
   limit = 4,
   renterId?: string,
@@ -1200,6 +1406,10 @@ export async function getFeaturedEquipmentListings(
       e."status",
       e."rejectionReason",
       e."reviewedAt",
+      e."reviewSummaryText",
+      e."reviewSummaryGeneratedAt",
+      e."reviewSummaryReviewCount",
+      e."reviewSummaryVisible",
       e."createdAt",
       e."updatedAt",
       c."title" AS "categoryTitle",
@@ -1282,6 +1492,172 @@ export async function getPublicEquipmentListingById(
   return attachReviewDetails(listing, renterId);
 }
 
+export async function generateEquipmentListingDescription(
+  input: GenerateListingDescriptionInput,
+) {
+  try {
+    const description = await generateGeminiText({
+      prompt: buildListingDescriptionPrompt(input),
+      temperature: 0.35,
+    });
+
+    return {
+      description: sanitizeGeneratedText(description, 2000),
+    };
+  } catch (error) {
+    logServiceError({
+      service: "equipment.service",
+      action: "generateEquipmentListingDescription",
+      error,
+      context: {
+        title: input.title,
+        hasDraftDescription: Boolean(input.description?.trim()),
+      },
+    });
+
+    throw new EquipmentServiceError(
+      error instanceof Error
+        ? error.message
+        : "Unable to generate the listing description right now.",
+      502,
+      "AI_GENERATION_FAILED",
+    );
+  }
+}
+
+export async function generateEquipmentReviewSummary(equipmentId: string) {
+  const equipment = await queryEquipmentById(equipmentId);
+
+  if (!equipment || equipment.status !== "ACTIVE") {
+    throw new EquipmentServiceError(
+      "Equipment listing not found.",
+      404,
+      "EQUIPMENT_NOT_FOUND",
+    );
+  }
+
+  const reviews = await queryEquipmentReviews(equipmentId);
+
+  if (reviews.length === 0) {
+    throw new EquipmentServiceError(
+      "Generate a summary only after reviews are available for this listing.",
+      400,
+      "REVIEWS_NOT_FOUND",
+    );
+  }
+
+  const averageRating = computeAverageRating(reviews);
+
+  try {
+    const text = await generateGeminiText({
+      prompt: buildReviewSummaryPrompt({
+        title: equipment.title,
+        averageRating,
+        reviewCount: reviews.length,
+        reviews: reviews.map((review) => ({
+          rating: review.rating,
+          title: review.title,
+          description: review.description,
+        })),
+      }),
+      temperature: 0.25,
+    });
+
+    const summaryText = sanitizeGeneratedText(text, 400);
+    const generatedAt = new Date();
+
+    await db.$executeRaw(Prisma.sql`
+      UPDATE "Equipment"
+      SET
+        "reviewSummaryText" = ${summaryText},
+        "reviewSummaryGeneratedAt" = ${generatedAt},
+        "reviewSummaryReviewCount" = ${reviews.length},
+        "reviewSummaryVisible" = ${true},
+        "updatedAt" = NOW()
+      WHERE "id" = ${equipmentId}
+    `);
+
+    const digest: EquipmentReviewSummaryDigest = {
+      text: summaryText,
+      generatedAt,
+      reviewCount: reviews.length,
+      visible: true,
+    };
+
+    return {
+      reviewSummary: digest,
+      reviewSummaryVisible: true,
+      averageRating,
+      reviewCount: reviews.length,
+    };
+  } catch (error) {
+    logServiceError({
+      service: "equipment.service",
+      action: "generateEquipmentReviewSummary",
+      error,
+      context: {
+        equipmentId,
+        reviewCount: reviews.length,
+      },
+    });
+
+    if (error instanceof EquipmentServiceError) {
+      throw error;
+    }
+
+    throw new EquipmentServiceError(
+      error instanceof Error
+        ? error.message
+        : "Unable to generate the review summary right now.",
+      502,
+      "AI_GENERATION_FAILED",
+    );
+  }
+}
+
+export async function updateEquipmentReviewSummaryVisibility(
+  equipmentId: string,
+  visible: boolean,
+) {
+  const equipment = await queryEquipmentById(equipmentId);
+
+  if (!equipment || equipment.status !== "ACTIVE") {
+    throw new EquipmentServiceError(
+      "Equipment listing not found.",
+      404,
+      "EQUIPMENT_NOT_FOUND",
+    );
+  }
+
+  const reviews = await queryEquipmentReviews(equipmentId);
+  const averageRating = computeAverageRating(reviews);
+
+  await db.$executeRaw(Prisma.sql`
+    UPDATE "Equipment"
+    SET
+      "reviewSummaryVisible" = ${visible},
+      "updatedAt" = NOW()
+    WHERE "id" = ${equipmentId}
+  `);
+
+  return {
+    reviewSummary:
+      equipment.reviewSummaryText &&
+      equipment.reviewSummaryGeneratedAt &&
+      equipment.reviewSummaryReviewCount !== null
+        ? {
+            text: equipment.reviewSummaryText,
+            generatedAt: equipment.reviewSummaryGeneratedAt,
+            reviewCount: equipment.reviewSummaryReviewCount,
+            visible,
+          }
+        : null,
+    reviewSummaryVisible: visible,
+    averageRating,
+    reviewCount: reviews.length,
+  };
+}
+
 export async function getEquipmentReviewDetails(
   equipmentId: string,
   renterId?: string,
@@ -1302,14 +1678,7 @@ export async function getEquipmentReviewDetails(
   );
   const reviews = await queryEquipmentReviews(equipmentId);
   const reviewCount = reviews.length;
-  const averageRating =
-    reviewCount > 0
-      ? Math.round(
-          (reviews.reduce((sum, review) => sum + review.rating, 0) /
-            reviewCount) *
-            10,
-        ) / 10
-      : null;
+  const averageRating = computeAverageRating(reviews);
 
   return {
     equipmentId,

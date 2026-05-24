@@ -40,6 +40,13 @@ export type EquipmentReviewViewerState = {
   review: EquipmentReviewSummary | null;
 };
 
+export type EquipmentReviewSummaryDigest = {
+  text: string;
+  generatedAt: Date;
+  reviewCount: number;
+  visible?: boolean;
+};
+
 export type EquipmentOwnerSummary = {
   id: string;
   fullName: string;
@@ -73,5 +80,7 @@ export type SafeEquipment = {
   averageRating?: number | null;
   reviewCount?: number;
   reviews?: EquipmentReviewSummary[];
+  reviewSummaryVisible?: boolean;
+  reviewSummary?: EquipmentReviewSummaryDigest | null;
   viewerReviewState?: EquipmentReviewViewerState;
 };
