@@ -103,6 +103,30 @@ export const adminEquipmentReviewSummaryQuerySchema =
     search: z.string().trim().max(100, "Search is too long.").optional(),
   });
 
+export const publicEquipmentQuerySchema = z.object({
+  categoryId: z.string().trim().min(1, "Category is required.").optional(),
+  search: z.string().trim().max(100, "Search is too long.").optional(),
+  page: z.coerce
+    .number()
+    .int("Page must be a whole number.")
+    .min(1, "Page must be at least 1.")
+    .optional(),
+  pageSize: z.coerce
+    .number()
+    .int("Page size must be a whole number.")
+    .min(1, "Page size must be at least 1.")
+    .max(100, "Page size cannot be more than 100.")
+    .optional(),
+});
+
+export const publicEquipmentSearchSuggestionsQuerySchema = z.object({
+  q: z
+    .string({ message: "Search query is required." })
+    .trim()
+    .min(2, "Enter at least 2 characters.")
+    .max(100, "Search is too long."),
+});
+
 export const generateListingDescriptionSchema = z.object({
   title: z
     .string({ message: "Title is required." })
@@ -165,6 +189,12 @@ export type PendingEquipmentQueryInput = z.infer<
 >;
 export type AdminEquipmentReviewSummaryQueryInput = z.infer<
   typeof adminEquipmentReviewSummaryQuerySchema
+>;
+export type PublicEquipmentQueryInput = z.infer<
+  typeof publicEquipmentQuerySchema
+>;
+export type PublicEquipmentSearchSuggestionsQueryInput = z.infer<
+  typeof publicEquipmentSearchSuggestionsQuerySchema
 >;
 export type GenerateListingDescriptionInput = z.infer<
   typeof generateListingDescriptionSchema

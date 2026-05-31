@@ -19,6 +19,7 @@ import {
   getMyEquipmentController,
   getPendingEquipmentController,
   getPublicEquipmentController,
+  getPublicEquipmentSearchSuggestionsController,
   getPublicEquipmentByIdController,
   getEquipmentReviewsController,
   rejectEquipmentController,
@@ -39,6 +40,8 @@ import {
   ownerEquipmentQuerySchema,
   pendingEquipmentQuerySchema,
   placeIdSchema,
+  publicEquipmentQuerySchema,
+  publicEquipmentSearchSuggestionsQuerySchema,
   rejectEquipmentSchema,
   updateEquipmentReviewSchema,
   updateOwnerEquipmentSchema,
@@ -50,7 +53,15 @@ const equipmentRouter = Router();
 equipmentRouter.get(
   "/",
   attachOptionalUser,
+  validateRequest(publicEquipmentQuerySchema, "query"),
   getPublicEquipmentController
+);
+
+equipmentRouter.get(
+  "/search-suggestions",
+  attachOptionalUser,
+  validateRequest(publicEquipmentSearchSuggestionsQuerySchema, "query"),
+  getPublicEquipmentSearchSuggestionsController
 );
 
 equipmentRouter.get(

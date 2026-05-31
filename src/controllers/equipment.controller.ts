@@ -13,7 +13,9 @@ import {
   getEquipmentReviewDetails,
   getFeaturedEquipmentListings,
   getEquipmentAddressSuggestions,
+  getPublicEquipmentSearchSuggestions,
   getPublicEquipmentListings,
+  searchPublicEquipmentListings,
   geocodeEquipmentLocation,
   geocodeEquipmentLocationByPlaceId,
   getOwnerEquipmentListings,
@@ -35,6 +37,8 @@ import type {
   OwnerEquipmentQueryInput,
   PendingEquipmentQueryInput,
   PlaceIdInput,
+  PublicEquipmentQueryInput,
+  PublicEquipmentSearchSuggestionsQueryInput,
   RejectEquipmentInput,
   UpdateReviewSummaryVisibilityInput,
   UpdateEquipmentReviewInput,
@@ -206,12 +210,32 @@ export async function getFeaturedEquipmentController(_req: Request, res: Respons
 
 export async function getPublicEquipmentController(req: Request, res: Response) {
   try {
-    const categoryId =
-      typeof req.query.categoryId === "string" ? req.query.categoryId.trim() : undefined;
+    const input = req.query as unknown as PublicEquipmentQueryInput;
     const renterId = req.user?.role === "RENTER" ? req.user.userId : undefined;
-    const listings = await getPublicEquipmentListings(categoryId, renterId);
+    const hasSearch = Boolean(input.search?.trim());
+    const hasPagination =
+      typeof input.page === "number" || typeof input.pageSize === "number";
+    const listings =
+      hasSearch || hasPagination
+        ? await searchPublicEquipmentListings(input, renterId)
+        : await getPublicEquipmentListings(input.categoryId, renterId);
 
     return sendSuccess(res, 200, "Equipment listings fetched successfully.", listings);
+  } catch (error) {
+    return handleEquipmentError(res, error);
+  }
+}
+
+export async function getPublicEquipmentSearchSuggestionsController(
+  req: Request,
+  res: Response,
+) {
+  try {
+    const input = req.query as unknown as PublicEquipmentSearchSuggestionsQueryInput;
+    const renterId = req.user?.role === "RENTER" ? req.user.userId : undefined;
+    const suggestions = await getPublicEquipmentSearchSuggestions(input.q, renterId);
+
+    return sendSuccess(res, 200, "Equipment search suggestions fetched successfully.", suggestions);
   } catch (error) {
     return handleEquipmentError(res, error);
   }

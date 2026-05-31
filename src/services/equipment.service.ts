@@ -27,9 +27,13 @@ import {
   createEquipmentRejectedNotification,
 } from "./notification.service.js";
 import type {
+  EquipmentSearchSuggestionCategory,
+  EquipmentSearchSuggestionItem,
+  EquipmentSearchSuggestionLocation,
   EquipmentReviewSummaryDigest,
   EquipmentReviewSummary,
   EquipmentReviewViewerState,
+  PublicEquipmentSearchSuggestions,
   SafeEquipment,
 } from "../types/equipment.js";
 import type {
@@ -40,7 +44,9 @@ import type {
   OwnerEquipmentQueryInput,
   PendingEquipmentQueryInput,
   CreateEquipmentReviewInput,
+  PublicEquipmentQueryInput,
   RejectEquipmentInput,
+  PublicEquipmentSearchSuggestionsQueryInput,
   UpdateEquipmentReviewInput,
   UpdateOwnerEquipmentInput,
 } from "../validators/equipment.schema.js";
@@ -230,6 +236,107 @@ function mapAggregateByEquipmentId(rows: EquipmentReviewAggregateRow[]) {
     };
     return grouped;
   }, {});
+}
+
+function normalizeSearchTerm(value: string) {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+function buildContainsPattern(value: string) {
+  return `%${normalizeSearchTerm(value)}%`;
+}
+
+function buildPrefixPattern(value: string) {
+  return `${normalizeSearchTerm(value)}%`;
+}
+
+function buildWordPattern(value: string) {
+  return `% ${normalizeSearchTerm(value)}%`;
+}
+
+function getLocationLabel(normalizedAddress: string) {
+  const parts = normalizedAddress
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length >= 2) {
+    return `${parts[parts.length - 2]}, ${parts[parts.length - 1]}`;
+  }
+
+  return normalizedAddress;
+}
+
+function mapRowToSearchSuggestionItem(
+  row: EquipmentRow,
+  images: EquipmentImageRow[],
+  isWishlisted = false,
+): EquipmentSearchSuggestionItem {
+  return {
+    id: row.id,
+    title: row.title,
+    category: {
+      id: row.categoryId,
+      title: row.categoryTitle,
+    },
+    price: row.price,
+    imageUrl: images[0]?.url ?? row.categoryImageUrl,
+    normalizedAddress: row.normalizedAddress,
+    locationLabel: getLocationLabel(row.normalizedAddress),
+    isWishlisted,
+  };
+}
+
+function buildCategorySuggestions(
+  items: EquipmentSearchSuggestionItem[],
+): EquipmentSearchSuggestionCategory[] {
+  const grouped = new Map<
+    string,
+    EquipmentSearchSuggestionCategory
+  >();
+
+  for (const item of items) {
+    const existing = grouped.get(item.category.id);
+
+    if (existing) {
+      existing.count += 1;
+      continue;
+    }
+
+    grouped.set(item.category.id, {
+      id: item.category.id,
+      title: item.category.title,
+      count: 1,
+    });
+  }
+
+  return [...grouped.values()]
+    .sort((left, right) => right.count - left.count)
+    .slice(0, 3);
+}
+
+function buildLocationSuggestions(
+  items: EquipmentSearchSuggestionItem[],
+): EquipmentSearchSuggestionLocation[] {
+  const grouped = new Map<string, EquipmentSearchSuggestionLocation>();
+
+  for (const item of items) {
+    const existing = grouped.get(item.locationLabel);
+
+    if (existing) {
+      existing.count += 1;
+      continue;
+    }
+
+    grouped.set(item.locationLabel, {
+      label: item.locationLabel,
+      count: 1,
+    });
+  }
+
+  return [...grouped.values()]
+    .sort((left, right) => right.count - left.count)
+    .slice(0, 3);
 }
 
 function sanitizeGeneratedText(value: string, maxLength: number) {
@@ -836,7 +943,59 @@ async function countEquipmentByStatus(
   return Number(rows[0]?.count ?? 0n);
 }
 
-async function queryPublicEquipmentByCategory(categoryId?: string) {
+function buildPublicEquipmentSearchClause(search: string) {
+  const normalizedSearch = normalizeSearchTerm(search);
+  const containsPattern = buildContainsPattern(normalizedSearch);
+
+  return Prisma.sql`
+    AND (
+      e."title" ILIKE ${containsPattern}
+      OR c."title" ILIKE ${containsPattern}
+      OR e."normalizedAddress" ILIKE ${containsPattern}
+      OR COALESCE(e."description", '') ILIKE ${containsPattern}
+    )
+  `;
+}
+
+function buildPublicEquipmentRankClause(search: string) {
+  const normalizedSearch = normalizeSearchTerm(search);
+  const containsPattern = buildContainsPattern(normalizedSearch);
+  const prefixPattern = buildPrefixPattern(normalizedSearch);
+  const wordPattern = buildWordPattern(normalizedSearch);
+
+  return Prisma.sql`
+    CASE
+      WHEN LOWER(e."title") = LOWER(${normalizedSearch}) THEN 600
+      WHEN LOWER(e."title") LIKE LOWER(${prefixPattern}) THEN 520
+      WHEN LOWER(e."title") LIKE LOWER(${wordPattern}) THEN 480
+      WHEN e."title" ILIKE ${containsPattern} THEN 420
+      WHEN LOWER(c."title") = LOWER(${normalizedSearch}) THEN 340
+      WHEN LOWER(c."title") LIKE LOWER(${prefixPattern}) THEN 320
+      WHEN c."title" ILIKE ${containsPattern} THEN 300
+      WHEN e."normalizedAddress" ILIKE ${containsPattern} THEN 200
+      WHEN COALESCE(e."description", '') ILIKE ${containsPattern} THEN 100
+      ELSE 0
+    END
+  `;
+}
+
+async function queryPublicEquipmentRows(input?: {
+  categoryId?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  const searchClause = input?.search?.trim()
+    ? buildPublicEquipmentSearchClause(input.search)
+    : Prisma.empty;
+  const rankClause = input?.search?.trim()
+    ? buildPublicEquipmentRankClause(input.search)
+    : Prisma.sql`0`;
+  const paginationClause =
+    typeof input?.limit === "number" && typeof input?.offset === "number"
+      ? Prisma.sql`LIMIT ${input.limit} OFFSET ${input.offset}`
+      : Prisma.empty;
+
   return db.$queryRaw<EquipmentRow[]>(Prisma.sql`
     SELECT
       e."id",
@@ -874,8 +1033,89 @@ async function queryPublicEquipmentByCategory(categoryId?: string) {
     INNER JOIN "User" u ON u."id" = e."ownerId"
     INNER JOIN "Category" c ON c."id" = e."categoryId"
     WHERE e."status" = ${"ACTIVE"}
-      AND (${categoryId ?? null}::text IS NULL OR e."categoryId" = ${categoryId ?? null})
-    ORDER BY e."createdAt" DESC
+      AND (${input?.categoryId ?? null}::text IS NULL OR e."categoryId" = ${input?.categoryId ?? null})
+    ${searchClause}
+    ORDER BY ${rankClause} DESC, e."createdAt" DESC
+    ${paginationClause}
+  `);
+}
+
+async function countPublicEquipmentRows(input?: {
+  categoryId?: string;
+  search?: string;
+}) {
+  const searchClause = input?.search?.trim()
+    ? buildPublicEquipmentSearchClause(input.search)
+    : Prisma.empty;
+
+  const rows = await db.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
+    SELECT COUNT(*)::bigint AS "count"
+    FROM "Equipment" e
+    INNER JOIN "Category" c ON c."id" = e."categoryId"
+    WHERE e."status" = ${"ACTIVE"}
+      AND (${input?.categoryId ?? null}::text IS NULL OR e."categoryId" = ${input?.categoryId ?? null})
+    ${searchClause}
+  `);
+
+  return Number(rows[0]?.count ?? 0n);
+}
+
+async function queryRelatedPublicEquipmentRows(input: {
+  categoryId: string;
+  excludeIds: string[];
+  locationLabel?: string;
+  limit: number;
+}) {
+  const locationClause = input.locationLabel?.trim()
+    ? Prisma.sql`
+        CASE
+          WHEN e."normalizedAddress" ILIKE ${buildContainsPattern(input.locationLabel)} THEN 1
+          ELSE 0
+        END
+      `
+    : Prisma.sql`0`;
+
+  return db.$queryRaw<EquipmentRow[]>(Prisma.sql`
+    SELECT
+      e."id",
+      e."ownerId",
+      u."fullName" AS "ownerFullName",
+      u."email" AS "ownerEmail",
+      u."phone" AS "ownerPhone",
+      u."address" AS "ownerAddress",
+      u."phoneVerified" AS "ownerPhoneVerified",
+      u."createdAt" AS "ownerCreatedAt",
+      e."title",
+      e."description",
+      e."categoryId",
+      e."price",
+      e."deliveryRadius",
+      e."address",
+      e."normalizedAddress",
+      e."latitude",
+      e."longitude",
+      e."status",
+      e."rejectionReason",
+      e."reviewedAt",
+      e."reviewSummaryText",
+      e."reviewSummaryGeneratedAt",
+      e."reviewSummaryReviewCount",
+      e."reviewSummaryVisible",
+      e."createdAt",
+      e."updatedAt",
+      c."title" AS "categoryTitle",
+      c."description" AS "categoryDescription",
+      c."imageUrl" AS "categoryImageUrl",
+      c."createdAt" AS "categoryCreatedAt",
+      c."updatedAt" AS "categoryUpdatedAt"
+    FROM "Equipment" e
+    INNER JOIN "User" u ON u."id" = e."ownerId"
+    INNER JOIN "Category" c ON c."id" = e."categoryId"
+    WHERE e."status" = ${"ACTIVE"}
+      AND e."categoryId" = ${input.categoryId}
+      AND e."id" NOT IN (${Prisma.join(input.excludeIds.length > 0 ? input.excludeIds : [""])})
+    ORDER BY ${locationClause} DESC, e."createdAt" DESC
+    LIMIT ${input.limit}
   `);
 }
 
@@ -1446,9 +1686,9 @@ export async function getPublicEquipmentListings(
   categoryId?: string,
   renterId?: string,
 ) {
-  const rows = await queryPublicEquipmentByCategory(
-    categoryId?.trim() || undefined,
-  );
+  const rows = await queryPublicEquipmentRows({
+    categoryId: categoryId?.trim() || undefined,
+  });
   const equipmentIds = rows.map((row) => row.id);
   const imageRows = await queryEquipmentImagesByIds(equipmentIds);
   const imagesByEquipmentId = groupImagesByEquipmentId(imageRows);
@@ -1464,6 +1704,101 @@ export async function getPublicEquipmentListings(
       wishlistedIds.has(row.id),
     ),
   );
+}
+
+export async function searchPublicEquipmentListings(
+  input: PublicEquipmentQueryInput,
+  renterId?: string,
+): Promise<PaginatedResult<SafeEquipment>> {
+  const pagination = normalizePagination({
+    page: input.page ?? 1,
+    pageSize: input.pageSize ?? 12,
+  });
+  const normalizedCategoryId = input.categoryId?.trim() || undefined;
+  const normalizedSearch = input.search?.trim() || undefined;
+  const [rows, totalItems] = await Promise.all([
+    queryPublicEquipmentRows({
+      categoryId: normalizedCategoryId,
+      search: normalizedSearch,
+      limit: pagination.take,
+      offset: pagination.skip,
+    }),
+    countPublicEquipmentRows({
+      categoryId: normalizedCategoryId,
+      search: normalizedSearch,
+    }),
+  ]);
+  const equipmentIds = rows.map((row) => row.id);
+  const [imageRows, wishlistedIds] = await Promise.all([
+    queryEquipmentImagesByIds(equipmentIds),
+    getWishlistedEquipmentIdSet(renterId, equipmentIds),
+  ]);
+  const imagesByEquipmentId = groupImagesByEquipmentId(imageRows);
+
+  return createPaginatedResult(
+    rows.map((row) =>
+      mapRowToPublicEquipment(
+        row,
+        imagesByEquipmentId[row.id] ?? [],
+        wishlistedIds.has(row.id),
+      ),
+    ),
+    {
+      page: pagination.page,
+      pageSize: pagination.pageSize,
+    },
+    totalItems,
+  );
+}
+
+export async function getPublicEquipmentSearchSuggestions(
+  query: PublicEquipmentSearchSuggestionsQueryInput["q"],
+  renterId?: string,
+): Promise<PublicEquipmentSearchSuggestions> {
+  const normalizedQuery = normalizeSearchTerm(query);
+  const matchRows = await queryPublicEquipmentRows({
+    search: normalizedQuery,
+    limit: 5,
+    offset: 0,
+  });
+  const topMatch = matchRows[0] ?? null;
+  const relatedRows = topMatch
+    ? await queryRelatedPublicEquipmentRows({
+        categoryId: topMatch.categoryId,
+        excludeIds: matchRows.map((row) => row.id),
+        locationLabel: getLocationLabel(topMatch.normalizedAddress),
+        limit: 4,
+      })
+    : [];
+  const allRows = [...matchRows, ...relatedRows];
+  const equipmentIds = allRows.map((row) => row.id);
+  const [imageRows, wishlistedIds] = await Promise.all([
+    queryEquipmentImagesByIds(equipmentIds),
+    getWishlistedEquipmentIdSet(renterId, equipmentIds),
+  ]);
+  const imagesByEquipmentId = groupImagesByEquipmentId(imageRows);
+  const matches = matchRows.map((row) =>
+    mapRowToSearchSuggestionItem(
+      row,
+      imagesByEquipmentId[row.id] ?? [],
+      wishlistedIds.has(row.id),
+    ),
+  );
+  const related = relatedRows.map((row) =>
+    mapRowToSearchSuggestionItem(
+      row,
+      imagesByEquipmentId[row.id] ?? [],
+      wishlistedIds.has(row.id),
+    ),
+  );
+
+  return {
+    query: normalizedQuery,
+    matches,
+    related,
+    categorySuggestions: buildCategorySuggestions(matches),
+    locationSuggestions: buildLocationSuggestions(matches),
+  };
 }
 
 export async function getPublicEquipmentListingById(

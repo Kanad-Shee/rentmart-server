@@ -84,3 +84,36 @@ export type SafeEquipment = {
   reviewSummary?: EquipmentReviewSummaryDigest | null;
   viewerReviewState?: EquipmentReviewViewerState;
 };
+
+export type EquipmentSearchSuggestionItem = {
+  id: string;
+  title: string;
+  category: {
+    id: string;
+    title: string;
+  };
+  price: number;
+  imageUrl: string;
+  normalizedAddress: string;
+  locationLabel: string;
+  isWishlisted: boolean;
+};
+
+export type EquipmentSearchSuggestionCategory = {
+  id: string;
+  title: string;
+  count: number;
+};
+
+export type EquipmentSearchSuggestionLocation = {
+  label: string;
+  count: number;
+};
+
+export type PublicEquipmentSearchSuggestions = {
+  query: string;
+  matches: EquipmentSearchSuggestionItem[];
+  related: EquipmentSearchSuggestionItem[];
+  categorySuggestions: EquipmentSearchSuggestionCategory[];
+  locationSuggestions: EquipmentSearchSuggestionLocation[];
+};
