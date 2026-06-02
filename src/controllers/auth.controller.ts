@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { AUTH_COOKIE_NAME } from "../configs/auth.config.js";
 import { logger } from "../lib/logger.js";
+import type { MobileAuthPayload } from "../types/auth.js";
 import {
   AuthServiceError,
   getDashboardMetrics,
@@ -164,6 +165,39 @@ export async function verifyOtpController(req: Request, res: Response) {
     return sendSuccess(res, 200, "OTP verified successfully.", {
       user: result.user,
     });
+  } catch (error) {
+    return handleAuthError(res, error);
+  }
+}
+
+function toMobileAuthPayload(result: MobileAuthPayload): MobileAuthPayload {
+  return {
+    user: result.user,
+    accessToken: result.accessToken,
+    accessTokenExpiresIn: result.accessTokenExpiresIn,
+  };
+}
+
+export async function mobileSignInController(req: Request, res: Response) {
+  try {
+    const result = await signInUser(req.body);
+
+    return sendSuccess(res, 200, "Signed in successfully.", toMobileAuthPayload(result));
+  } catch (error) {
+    return handleAuthError(res, error);
+  }
+}
+
+export async function mobileVerifyOtpController(req: Request, res: Response) {
+  try {
+    const result = await verifyOtp(req.body);
+
+    return sendSuccess(
+      res,
+      200,
+      "OTP verified successfully.",
+      toMobileAuthPayload(result),
+    );
   } catch (error) {
     return handleAuthError(res, error);
   }

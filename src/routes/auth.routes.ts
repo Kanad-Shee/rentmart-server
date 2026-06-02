@@ -13,6 +13,8 @@ import {
   listUsersController,
   logoutController,
   meController,
+  mobileSignInController,
+  mobileVerifyOtpController,
   resendOtpController,
   signInController,
   signUpController,
@@ -95,10 +97,22 @@ authRouter.post(
   signInController,
 );
 authRouter.post(
+  "/mobile/signin",
+  signInRateLimit,
+  validateRequest(signInSchema),
+  mobileSignInController,
+);
+authRouter.post(
   "/verify-otp",
   verifyOtpRateLimit,
   validateRequest(verifyOtpSchema),
   verifyOtpController,
+);
+authRouter.post(
+  "/mobile/verify-otp",
+  verifyOtpRateLimit,
+  validateRequest(verifyOtpSchema),
+  mobileVerifyOtpController,
 );
 authRouter.post(
   "/resend-otp",

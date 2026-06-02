@@ -985,12 +985,19 @@ async function queryPublicEquipmentRows(input?: {
   limit?: number;
   offset?: number;
 }) {
-  const searchClause = input?.search?.trim()
-    ? buildPublicEquipmentSearchClause(input.search)
+  const normalizedSearch = input?.search?.trim();
+  const searchText = normalizedSearch ?? "";
+  const hasSearch = Boolean(normalizedSearch);
+  const searchClause = hasSearch
+    ? buildPublicEquipmentSearchClause(searchText)
     : Prisma.empty;
-  const rankClause = input?.search?.trim()
-    ? buildPublicEquipmentRankClause(input.search)
-    : Prisma.sql`0`;
+  const orderByClause = hasSearch
+    ? Prisma.sql`
+        ORDER BY ${buildPublicEquipmentRankClause(searchText)} DESC, e."createdAt" DESC
+      `
+    : Prisma.sql`
+        ORDER BY e."createdAt" DESC
+      `;
   const paginationClause =
     typeof input?.limit === "number" && typeof input?.offset === "number"
       ? Prisma.sql`LIMIT ${input.limit} OFFSET ${input.offset}`
@@ -1035,7 +1042,7 @@ async function queryPublicEquipmentRows(input?: {
     WHERE e."status" = ${"ACTIVE"}
       AND (${input?.categoryId ?? null}::text IS NULL OR e."categoryId" = ${input?.categoryId ?? null})
     ${searchClause}
-    ORDER BY ${rankClause} DESC, e."createdAt" DESC
+    ${orderByClause}
     ${paginationClause}
   `);
 }
@@ -1066,14 +1073,19 @@ async function queryRelatedPublicEquipmentRows(input: {
   locationLabel?: string;
   limit: number;
 }) {
-  const locationClause = input.locationLabel?.trim()
+  const hasLocationLabel = Boolean(input.locationLabel?.trim());
+  const orderByClause = hasLocationLabel
     ? Prisma.sql`
-        CASE
-          WHEN e."normalizedAddress" ILIKE ${buildContainsPattern(input.locationLabel)} THEN 1
-          ELSE 0
-        END
+        ORDER BY
+          CASE
+            WHEN e."normalizedAddress" ILIKE ${buildContainsPattern(input.locationLabel!)} THEN 1
+            ELSE 0
+          END DESC,
+          e."createdAt" DESC
       `
-    : Prisma.sql`0`;
+    : Prisma.sql`
+        ORDER BY e."createdAt" DESC
+      `;
 
   return db.$queryRaw<EquipmentRow[]>(Prisma.sql`
     SELECT
@@ -1114,7 +1126,7 @@ async function queryRelatedPublicEquipmentRows(input: {
     WHERE e."status" = ${"ACTIVE"}
       AND e."categoryId" = ${input.categoryId}
       AND e."id" NOT IN (${Prisma.join(input.excludeIds.length > 0 ? input.excludeIds : [""])})
-    ORDER BY ${locationClause} DESC, e."createdAt" DESC
+    ${orderByClause}
     LIMIT ${input.limit}
   `);
 }
