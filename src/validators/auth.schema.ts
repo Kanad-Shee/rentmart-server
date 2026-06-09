@@ -39,14 +39,33 @@ const phoneNumberSchema = z
   .transform(normalizePhoneInput)
   .pipe(z.string().regex(/^\+[1-9]\d{7,14}$/, "Enter a valid mobile number."));
 
+const passwordSchema = z
+  .string({ message: "Password is required." })
+  .min(8, "Password must be at least 8 characters.")
+  .regex(
+    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/,
+    "Password must include at least one uppercase letter, one lowercase letter, one number, and one special character.",
+  );
+
+const fullNameSchema = z
+  .string({ message: "Full name is required." })
+  .trim()
+  .transform((value) => value.replace(/\s+/g, " "))
+  .pipe(
+    z
+      .string()
+      .min(2, "Enter your full name.")
+      .max(50, "Full name is too long.")
+      .regex(
+        /^[A-Za-z]+(?:[ '-][A-Za-z]+)*$/,
+        "Full name can only contain letters, spaces, apostrophes, and hyphens.",
+      ),
+  );
+
 export const signUpSchema = z
   .object({
     role: z.enum(["owner", "renter"]),
-    fullName: z
-      .string({ message: "Full name is required." })
-      .trim()
-      .min(2, "Enter your full name.")
-      .max(50, "Full name is too long."),
+    fullName: fullNameSchema,
     email: z
       .string({ message: "Email is required." })
       .trim()
@@ -56,9 +75,7 @@ export const signUpSchema = z
       .trim()
       .min(2, "Enter a valid business address.")
       .max(80, "Business address is too long."),
-    password: z
-      .string({ message: "Password is required." })
-      .min(8, "Password must be at least 8 characters."),
+    password: passwordSchema,
     confirmPassword: z
       .string({ message: "Confirm your password." })
       .min(8, "Password must be at least 8 characters."),
@@ -78,9 +95,7 @@ export const signInSchema = z.object({
     .string({ message: "Email is required." })
     .trim()
     .email("Enter a valid email address."),
-  password: z
-    .string({ message: "Password is required." })
-    .min(8, "Password must be at least 8 characters."),
+  password: passwordSchema,
   rememberMe: z.boolean().optional(),
 });
 
@@ -128,9 +143,7 @@ export const updatePasswordSchema = z
     currentPassword: z
       .string({ message: "Current password is required." })
       .min(8, "Password must be at least 8 characters."),
-    newPassword: z
-      .string({ message: "New password is required." })
-      .min(8, "Password must be at least 8 characters."),
+    newPassword: passwordSchema,
     confirmNewPassword: z
       .string({ message: "Confirm your new password." })
       .min(8, "Password must be at least 8 characters."),
