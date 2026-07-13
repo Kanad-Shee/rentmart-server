@@ -24,8 +24,8 @@ const validSignUpPayload = {
   fullName: "Aman Kumar",
   email: "aman@example.com",
   address: "12 Industrial Road",
-  password: "password123",
-  confirmPassword: "password123",
+  password: "Password@123",
+  confirmPassword: "Password@123",
 };
 
 describe("auth schemas", () => {
@@ -50,7 +50,7 @@ describe("auth schemas", () => {
   it("accepts valid sign in data", () => {
     const result = signInSchema.safeParse({
       email: "aman@example.com",
-      password: "password123",
+      password: "Password@123",
       rememberMe: true,
     });
 
@@ -136,7 +136,7 @@ describe("validateRequest middleware", () => {
     const req = {
       body: {
         email: "aman@example.com",
-        password: "password123",
+        password: "Password@123",
         rememberMe: false,
       },
     } as never;
