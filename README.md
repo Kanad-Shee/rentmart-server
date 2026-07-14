@@ -82,6 +82,7 @@ The `server/diagrams` folder contains visual design artifacts that are useful du
 | --- | --- | --- |
 | Data Flow Diagram Level 0 | [`diagrams/DFD/DFD-level-0.png`](diagrams/DFD/DFD-level-0.png) | Shows RentMart as a high-level system with external actors and major data movement |
 | Data Flow Diagram Level 1 | [`diagrams/DFD/DFD-level-1.png`](diagrams/DFD/DFD-level-1.png) | Breaks the system into backend processes such as auth, listing, booking, payment, support, and notification flow |
+| Backend Request Flow Diagram | [`diagrams/Backend/backend-request-flow.png`](diagrams/Backend/backend-request-flow.png) | Illustrates how client requests pass through Express routes, middleware, controllers, services, Prisma ORM, PostgreSQL, and return API responses |
 | Entity Relationship Diagram | [`diagrams/ER/ER.png`](diagrams/ER/ER.png) | Shows database entities, primary keys, foreign keys, and relationships used by Prisma/PostgreSQL |
 | UML Diagram 1 | [`diagrams/UMLs/UML1.png`](diagrams/UMLs/UML1.png) | Supports object/module-level explanation of core RentMart backend structure |
 | UML Diagram 2 | [`diagrams/UMLs/UML-2.png`](diagrams/UMLs/UML-2.png) | Supports workflow and module interaction explanation |
@@ -92,6 +93,10 @@ The `server/diagrams` folder contains visual design artifacts that are useful du
 ![RentMart DFD Level 0](diagrams/DFD/DFD-level-0.png)
 
 ![RentMart DFD Level 1](diagrams/DFD/DFD-level-1.png)
+
+### Backend Request Flow
+
+![RentMart Backend Request Flow](diagrams/Backend/backend-request-flow.png)
 
 ### Database ER Diagram
 
@@ -110,6 +115,7 @@ The `server/diagrams` folder contains visual design artifacts that are useful du
 ```text
 server/
 ├─ diagrams/
+│  ├─ Backend/
 │  ├─ DFD/
 │  ├─ ER/
 │  └─ UMLs/
