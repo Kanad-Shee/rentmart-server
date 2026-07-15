@@ -19,6 +19,8 @@
     "@types/node": "^25.6.0",
     "@types/nodemailer": "^8.0.0",
     "@types/pg": "^8.20.0",
+    "@types/swagger-jsdoc": "^6.0.4",
+    "@types/swagger-ui-express": "^4.1.8",
     "prisma": "^7.8.0"
   },
   "peerDependencies": {
@@ -37,6 +39,8 @@
     "pg": "^8.20.0",
     "redis": "^5.12.1",
     "resend": "^4.8.0",
+    "swagger-jsdoc": "^6.3.0",
+    "swagger-ui-express": "^5.0.1",
     "twilio": "^6.0.0",
     "winston": "^3.19.0",
     "zod": "^4.3.6"

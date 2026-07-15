@@ -13,6 +13,8 @@ import { initializeDatabase } from "./lib/db.js";
 import { logger } from "./lib/logger.js";
 import { initializeRedis } from "./lib/redis.js";
 import { requestLogger } from "./middlewares/request-logger.middleware.js";
+import swaggerUI from "swagger-ui-express";
+import { swaggerSpec } from "../swagger.js";
 
 const app = express();
 const port = Number(process.env.PORT || 8080);
@@ -25,6 +27,9 @@ app.use(requestLogger);
 app.get("/", (req: Request, res: Response) => {
   res.json({ success: true, message: "Server is healthy and running fine!" });
 });
+
+// swagger docs
+app.use("/docs", swaggerUI.serve, swaggerUI.setup(swaggerSpec));
 
 app.use("/auth", authRouter);
 app.use("/bookings", bookingRouter);

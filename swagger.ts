@@ -1,0 +1,111 @@
+import type { Router } from "express";
+import { authRouter } from "./src/routes/auth.routes.js";
+import { bookingRouter } from "./src/routes/booking.routes.js";
+import { categoryRouter } from "./src/routes/category.routes.js";
+import { equipmentRouter } from "./src/routes/equipment.routes.js";
+import { notificationRouter } from "./src/routes/notification.routes.js";
+import { paymentRouter } from "./src/routes/payment.routes.js";
+import { supportQueryRouter } from "./src/routes/support-query.routes.js";
+import { wishlistRouter } from "./src/routes/wishlist.routes.js";
+
+type OpenApiPathItem = Record<
+    string,
+    { summary: string; responses: Record<string, { description: string }> }
+>;
+
+function toOpenApiPath(routePath: string) {
+    return routePath
+        .split("/")
+        .map((segment) => {
+            if (segment.startsWith(":")) {
+                return `{${segment.slice(1)}}`;
+            }
+
+            return segment;
+        })
+        .join("/")
+        .replace(/\/+/g, "/");
+}
+
+function joinPaths(basePath: string, routePath: string) {
+    return toOpenApiPath(`${basePath}/${routePath}`.replace(/\/+/g, "/"));
+}
+
+function collectRouterPaths(basePath: string, router: Router) {
+    const paths: Record<string, OpenApiPathItem> = {};
+
+    for (const layer of (router as Router & {
+        stack?: Array<{
+            route?: { path?: string | string[]; methods?: Record<string, boolean> };
+        }>;
+    }).stack ?? []) {
+        if (!layer.route?.path || !layer.route.methods) {
+            continue;
+        }
+
+        const routePaths = Array.isArray(layer.route.path)
+            ? layer.route.path
+            : [layer.route.path];
+
+        for (const routePath of routePaths) {
+            const openApiPath = joinPaths(basePath, routePath);
+            paths[openApiPath] ??= {};
+
+            for (const method of Object.keys(layer.route.methods)) {
+                paths[openApiPath][method] = {
+                    summary: `${method.toUpperCase()} ${openApiPath}`,
+                    responses: {
+                        200: {
+                            description: "Success",
+                        },
+                    },
+                };
+            }
+        }
+    }
+
+    return paths;
+}
+
+const swaggerPaths = {
+    "/": {
+        get: {
+            summary: "Health check",
+            responses: {
+                200: {
+                    description: "Server is healthy",
+                },
+            },
+        },
+    },
+    ...collectRouterPaths("/auth", authRouter),
+    ...collectRouterPaths("/bookings", bookingRouter),
+    ...collectRouterPaths("/categories", categoryRouter),
+    ...collectRouterPaths("/equipment", equipmentRouter),
+    ...collectRouterPaths("/notifications", notificationRouter),
+    ...collectRouterPaths("/payments", paymentRouter),
+    ...collectRouterPaths("/support-queries", supportQueryRouter),
+    ...collectRouterPaths("/wishlists", wishlistRouter),
+};
+
+export const swaggerSpec = {
+    openapi: "3.0.0",
+    info: {
+        title: "Rentmart Server Docs",
+        version: "1.0.0",
+        description: "Automated Swagger Documentation for Testing APIs",
+    },
+    servers: [
+        {
+            url:
+                process.env.NODE_ENV === "development"
+                    ? "http://localhost:8080"
+                    : "https://rentmart-server.onrender.com",
+            description:
+                process.env.NODE_ENV === "development"
+                    ? "Development server"
+                    : "Production Server",
+        },
+    ],
+    paths: swaggerPaths,
+};
