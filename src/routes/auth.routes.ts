@@ -35,6 +35,7 @@ import {
   verifyOtpSchema,
   verifyPhoneSchema,
 } from "../validators/auth.schema.js";
+import { logger } from "../lib/logger.js";
 
 const authRouter = Router();
 
@@ -76,7 +77,7 @@ const resendOtpRateLimit = createRateLimiter({
 authRouter.post(
   "/signup",
   (req, _res, next) => {
-    console.log("[auth.routes] Signup request received", {
+    logger.info("[auth.routes] Signup request received", {
       method: req.method,
       path: req.originalUrl,
       ip: req.ip,

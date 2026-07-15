@@ -15,7 +15,7 @@ import { initializeRedis } from "./lib/redis.js";
 import { requestLogger } from "./middlewares/request-logger.middleware.js";
 
 const app = express();
-const port = 8080;
+const port = Number(process.env.PORT || 8080);
 
 app.use("/payments/cashfree/webhook", express.raw({ type: "*/*" }));
 app.use(express.json());
