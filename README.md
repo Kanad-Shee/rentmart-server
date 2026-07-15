@@ -152,6 +152,16 @@ server/
 | `support-query.routes.ts` | Contact/support query submission and admin review queue |
 | `wishlist.routes.ts` | Renter wishlist save, remove, and listing operations |
 
+## Swagger Docs
+
+The API documentation is exposed through the Swagger UI route at [`/docs`](src/index.ts).
+
+- The Swagger page is mounted in `src/index.ts` using `swagger-ui-express`.
+- The generated spec groups endpoints into sections such as Health, Auth, Bookings, Categories, Equipment, Notifications, Payments, Support Queries, and Wishlists.
+- The screenshot below shows the grouped Swagger layout in the browser.
+
+![Swagger docs grouped by section](diagrams/swagger-docs.png)
+
 ## Request Lifecycle
 
 Each protected API request follows a predictable flow.
@@ -283,21 +293,21 @@ The server expects environment values for local development and integration serv
 
 Common environment groups:
 
-- Database
+- `Database`
   - PostgreSQL connection URL and Prisma settings.
-- Auth
+- `Auth`
   - JWT secret, issuer, token lifetime, and cookie settings.
-- Redis
+- `Redis`
   - Redis host, port, password, or URL for rate limiting.
-- Email
+- `Email`
   - SMTP, Nodemailer, or Resend credentials.
-- SMS
+- `SMS`
   - Twilio credentials for mobile verification.
-- Uploads
+- `Uploads`
   - Image upload configuration used by listing/category flows.
-- Payments
+- `Payments`
   - Cashfree or payment gateway credentials and webhook settings.
-- App URLs
+- `App URLs`
   - Client URL, server URL, CORS origin, and redirect targets.
 
 ## Local Development

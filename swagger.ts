@@ -10,8 +10,19 @@ import { wishlistRouter } from "./src/routes/wishlist.routes.js";
 
 type OpenApiPathItem = Record<
     string,
-    { summary: string; responses: Record<string, { description: string }> }
+    {
+        summary: string;
+        tags: string[];
+        responses: Record<string, { description: string }>;
+    }
 >;
+
+type RouteSection = {
+    basePath: string;
+    tag: string;
+    description: string;
+    router: Router;
+};
 
 function toOpenApiPath(routePath: string) {
     return routePath
@@ -31,7 +42,7 @@ function joinPaths(basePath: string, routePath: string) {
     return toOpenApiPath(`${basePath}/${routePath}`.replace(/\/+/g, "/"));
 }
 
-function collectRouterPaths(basePath: string, router: Router) {
+function collectRouterPaths(basePath: string, tag: string, router: Router) {
     const paths: Record<string, OpenApiPathItem> = {};
 
     for (const layer of (router as Router & {
@@ -54,6 +65,7 @@ function collectRouterPaths(basePath: string, router: Router) {
             for (const method of Object.keys(layer.route.methods)) {
                 paths[openApiPath][method] = {
                     summary: `${method.toUpperCase()} ${openApiPath}`,
+                    tags: [tag],
                     responses: {
                         200: {
                             description: "Success",
@@ -67,10 +79,62 @@ function collectRouterPaths(basePath: string, router: Router) {
     return paths;
 }
 
+const routeSections: RouteSection[] = [
+    {
+        basePath: "/auth",
+        tag: "Auth",
+        description: "Registration, login, OTP, profile, and session endpoints.",
+        router: authRouter,
+    },
+    {
+        basePath: "/bookings",
+        tag: "Bookings",
+        description: "Booking lifecycle, approval, disputes, and payment actions.",
+        router: bookingRouter,
+    },
+    {
+        basePath: "/categories",
+        tag: "Categories",
+        description: "Category browsing and category administration endpoints.",
+        router: categoryRouter,
+    },
+    {
+        basePath: "/equipment",
+        tag: "Equipment",
+        description: "Equipment discovery, listing, moderation, and owner actions.",
+        router: equipmentRouter,
+    },
+    {
+        basePath: "/notifications",
+        tag: "Notifications",
+        description: "Notification feed and read-state updates.",
+        router: notificationRouter,
+    },
+    {
+        basePath: "/payments",
+        tag: "Payments",
+        description: "Payment webhook handling and payment-related retrieval.",
+        router: paymentRouter,
+    },
+    {
+        basePath: "/support-queries",
+        tag: "Support Queries",
+        description: "Support request submission and admin review endpoints.",
+        router: supportQueryRouter,
+    },
+    {
+        basePath: "/wishlists",
+        tag: "Wishlists",
+        description: "Wishlist save, remove, and listing operations.",
+        router: wishlistRouter,
+    },
+];
+
 const swaggerPaths = {
     "/": {
         get: {
             summary: "Health check",
+            tags: ["Health"],
             responses: {
                 200: {
                     description: "Server is healthy",
@@ -78,14 +142,12 @@ const swaggerPaths = {
             },
         },
     },
-    ...collectRouterPaths("/auth", authRouter),
-    ...collectRouterPaths("/bookings", bookingRouter),
-    ...collectRouterPaths("/categories", categoryRouter),
-    ...collectRouterPaths("/equipment", equipmentRouter),
-    ...collectRouterPaths("/notifications", notificationRouter),
-    ...collectRouterPaths("/payments", paymentRouter),
-    ...collectRouterPaths("/support-queries", supportQueryRouter),
-    ...collectRouterPaths("/wishlists", wishlistRouter),
+    ...routeSections.reduce<Record<string, OpenApiPathItem>>((paths, section) => {
+        return {
+            ...paths,
+            ...collectRouterPaths(section.basePath, section.tag, section.router),
+        };
+    }, {}),
 };
 
 export const swaggerSpec = {
@@ -106,6 +168,16 @@ export const swaggerSpec = {
                     ? "Development server"
                     : "Production Server",
         },
+    ],
+    tags: [
+        {
+            name: "Health",
+            description: "Basic server status and readiness endpoints.",
+        },
+        ...routeSections.map((section) => ({
+            name: section.tag,
+            description: section.description,
+        })),
     ],
     paths: swaggerPaths,
 };
