@@ -8,6 +8,7 @@ import { paymentRouter } from "./src/routes/payment.routes.js";
 import { supportQueryRouter } from "./src/routes/support-query.routes.js";
 import { wishlistRouter } from "./src/routes/wishlist.routes.js";
 
+
 type OpenApiPathItem = Record<
     string,
     {

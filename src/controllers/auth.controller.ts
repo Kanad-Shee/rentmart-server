@@ -36,6 +36,7 @@ function isProduction() {
   return process.env.NODE_ENV === "production";
 }
 
+//
 function getAuthCookieOptions(maxAgeMs?: number) {
   return {
     httpOnly: true,

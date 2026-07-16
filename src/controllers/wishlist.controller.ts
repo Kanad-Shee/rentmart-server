@@ -82,6 +82,7 @@ export async function addWishlistItemController(req: Request, res: Response) {
   }
 }
 
+
 export async function removeWishlistItemController(req: Request, res: Response) {
   try {
     const userId = getAuthenticatedUserId(req);
