@@ -211,7 +211,8 @@ function computeAverageRating(reviews: Array<{ rating: number }>) {
 
   return (
     Math.round(
-      (reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length) *
+      (reviews.reduce((sum, review) => sum + review.rating, 0) /
+        reviews.length) *
         10,
     ) / 10
   );
@@ -290,10 +291,7 @@ function mapRowToSearchSuggestionItem(
 function buildCategorySuggestions(
   items: EquipmentSearchSuggestionItem[],
 ): EquipmentSearchSuggestionCategory[] {
-  const grouped = new Map<
-    string,
-    EquipmentSearchSuggestionCategory
-  >();
+  const grouped = new Map<string, EquipmentSearchSuggestionCategory>();
 
   for (const item of items) {
     const existing = grouped.get(item.category.id);
@@ -832,7 +830,10 @@ async function queryEquipmentByOwner(
   `);
 }
 
-async function countEquipmentByOwner(ownerId: string, tab?: "live" | "pending" | "draft") {
+async function countEquipmentByOwner(
+  ownerId: string,
+  tab?: "live" | "pending" | "draft",
+) {
   const tabFilter =
     tab === "live"
       ? Prisma.sql`AND e."status" = ${"ACTIVE"}`

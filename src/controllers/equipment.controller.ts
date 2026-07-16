@@ -45,7 +45,12 @@ import type {
   UpdateOwnerEquipmentInput,
 } from "../validators/equipment.schema.js";
 
-function sendSuccess<T>(res: Response, status: number, message: string, data: T) {
+function sendSuccess<T>(
+  res: Response,
+  status: number,
+  message: string,
+  data: T,
+) {
   return res.status(status).json({
     success: true,
     message,
@@ -53,7 +58,12 @@ function sendSuccess<T>(res: Response, status: number, message: string, data: T)
   });
 }
 
-function sendError(res: Response, status: number, message: string, errors?: unknown) {
+function sendError(
+  res: Response,
+  status: number,
+  message: string,
+  errors?: unknown,
+) {
   return res.status(status).json({
     success: false,
     message,
@@ -63,7 +73,9 @@ function sendError(res: Response, status: number, message: string, errors?: unkn
 
 function handleEquipmentError(res: Response, error: unknown) {
   if (error instanceof EquipmentServiceError) {
-    return sendError(res, error.statusCode, error.message, { code: error.code });
+    return sendError(res, error.statusCode, error.message, {
+      code: error.code,
+    });
   }
 
   logger.error("Equipment controller error", {
@@ -100,18 +112,29 @@ export async function geocodeEquipmentController(req: Request, res: Response) {
   }
 }
 
-export async function addressSuggestionsController(req: Request, res: Response) {
+export async function addressSuggestionsController(
+  req: Request,
+  res: Response,
+) {
   try {
     const input = req.query as AddressSuggestionsInput;
     const suggestions = await getEquipmentAddressSuggestions(input.input);
 
-    return sendSuccess(res, 200, "Address suggestions fetched successfully.", suggestions);
+    return sendSuccess(
+      res,
+      200,
+      "Address suggestions fetched successfully.",
+      suggestions,
+    );
   } catch (error) {
     return handleEquipmentError(res, error);
   }
 }
 
-export async function geocodeEquipmentPlaceIdController(req: Request, res: Response) {
+export async function geocodeEquipmentPlaceIdController(
+  req: Request,
+  res: Response,
+) {
   try {
     const input = req.query as PlaceIdInput;
     const location = await geocodeEquipmentLocationByPlaceId(input.placeId);
@@ -134,13 +157,21 @@ export async function createEquipmentController(req: Request, res: Response) {
     const files = (req.files as Express.Multer.File[]) ?? [];
     const equipment = await createEquipmentListing(ownerId, input, files);
 
-    return sendSuccess(res, 201, "Equipment listing created successfully.", equipment);
+    return sendSuccess(
+      res,
+      201,
+      "Equipment listing created successfully.",
+      equipment,
+    );
   } catch (error) {
     return handleEquipmentError(res, error);
   }
 }
 
-export async function createDraftEquipmentController(req: Request, res: Response) {
+export async function createDraftEquipmentController(
+  req: Request,
+  res: Response,
+) {
   try {
     const ownerId = getAuthenticatedOwnerId(req);
 
@@ -152,7 +183,12 @@ export async function createDraftEquipmentController(req: Request, res: Response
     const files = (req.files as Express.Multer.File[]) ?? [];
     const equipment = await createDraftEquipmentListing(ownerId, input, files);
 
-    return sendSuccess(res, 201, "Draft listing saved successfully.", equipment);
+    return sendSuccess(
+      res,
+      201,
+      "Draft listing saved successfully.",
+      equipment,
+    );
   } catch (error) {
     return handleEquipmentError(res, error);
   }
@@ -172,7 +208,12 @@ export async function generateEquipmentListingDescriptionController(
     const input = req.body as GenerateListingDescriptionInput;
     const result = await generateEquipmentListingDescription(input);
 
-    return sendSuccess(res, 200, "Listing description generated successfully.", result);
+    return sendSuccess(
+      res,
+      200,
+      "Listing description generated successfully.",
+      result,
+    );
   } catch (error) {
     return handleEquipmentError(res, error);
   }
@@ -191,24 +232,41 @@ export async function getMyEquipmentController(req: Request, res: Response) {
       req.query as unknown as OwnerEquipmentQueryInput,
     );
 
-    return sendSuccess(res, 200, "Equipment listings fetched successfully.", listings);
+    return sendSuccess(
+      res,
+      200,
+      "Equipment listings fetched successfully.",
+      listings,
+    );
   } catch (error) {
     return handleEquipmentError(res, error);
   }
 }
 
-export async function getFeaturedEquipmentController(_req: Request, res: Response) {
+export async function getFeaturedEquipmentController(
+  _req: Request,
+  res: Response,
+) {
   try {
-    const renterId = _req.user?.role === "RENTER" ? _req.user.userId : undefined;
-    const listings = await getFeaturedEquipmentListings(4, renterId);
+    const renterId =
+      _req.user?.role === "RENTER" ? _req.user.userId : undefined;
+    const listings = await getFeaturedEquipmentListings(8, renterId);
 
-    return sendSuccess(res, 200, "Featured equipment listings fetched successfully.", listings);
+    return sendSuccess(
+      res,
+      200,
+      "Featured equipment listings fetched successfully.",
+      listings,
+    );
   } catch (error) {
     return handleEquipmentError(res, error);
   }
 }
 
-export async function getPublicEquipmentController(req: Request, res: Response) {
+export async function getPublicEquipmentController(
+  req: Request,
+  res: Response,
+) {
   try {
     const input = req.query as unknown as PublicEquipmentQueryInput;
     const renterId = req.user?.role === "RENTER" ? req.user.userId : undefined;
@@ -220,7 +278,12 @@ export async function getPublicEquipmentController(req: Request, res: Response) 
         ? await searchPublicEquipmentListings(input, renterId)
         : await getPublicEquipmentListings(input.categoryId, renterId);
 
-    return sendSuccess(res, 200, "Equipment listings fetched successfully.", listings);
+    return sendSuccess(
+      res,
+      200,
+      "Equipment listings fetched successfully.",
+      listings,
+    );
   } catch (error) {
     return handleEquipmentError(res, error);
   }
@@ -231,17 +294,29 @@ export async function getPublicEquipmentSearchSuggestionsController(
   res: Response,
 ) {
   try {
-    const input = req.query as unknown as PublicEquipmentSearchSuggestionsQueryInput;
+    const input =
+      req.query as unknown as PublicEquipmentSearchSuggestionsQueryInput;
     const renterId = req.user?.role === "RENTER" ? req.user.userId : undefined;
-    const suggestions = await getPublicEquipmentSearchSuggestions(input.q, renterId);
+    const suggestions = await getPublicEquipmentSearchSuggestions(
+      input.q,
+      renterId,
+    );
 
-    return sendSuccess(res, 200, "Equipment search suggestions fetched successfully.", suggestions);
+    return sendSuccess(
+      res,
+      200,
+      "Equipment search suggestions fetched successfully.",
+      suggestions,
+    );
   } catch (error) {
     return handleEquipmentError(res, error);
   }
 }
 
-export async function getPublicEquipmentByIdController(req: Request, res: Response) {
+export async function getPublicEquipmentByIdController(
+  req: Request,
+  res: Response,
+) {
   try {
     const equipmentId = getEquipmentIdParam(req);
 
@@ -250,9 +325,17 @@ export async function getPublicEquipmentByIdController(req: Request, res: Respon
     }
 
     const renterId = req.user?.role === "RENTER" ? req.user.userId : undefined;
-    const equipment = await getPublicEquipmentListingById(equipmentId, renterId);
+    const equipment = await getPublicEquipmentListingById(
+      equipmentId,
+      renterId,
+    );
 
-    return sendSuccess(res, 200, "Equipment listing fetched successfully.", equipment);
+    return sendSuccess(
+      res,
+      200,
+      "Equipment listing fetched successfully.",
+      equipment,
+    );
   } catch (error) {
     return handleEquipmentError(res, error);
   }
@@ -273,13 +356,21 @@ export async function deleteEquipmentController(req: Request, res: Response) {
 
     const result = await deleteEquipmentListing(ownerId, equipmentId);
 
-    return sendSuccess(res, 200, "Equipment listing deleted successfully.", result);
+    return sendSuccess(
+      res,
+      200,
+      "Equipment listing deleted successfully.",
+      result,
+    );
   } catch (error) {
     return handleEquipmentError(res, error);
   }
 }
 
-export async function updateOwnerEquipmentController(req: Request, res: Response) {
+export async function updateOwnerEquipmentController(
+  req: Request,
+  res: Response,
+) {
   try {
     const ownerId = getAuthenticatedOwnerId(req);
     const equipmentId = getEquipmentIdParam(req);
@@ -294,15 +385,29 @@ export async function updateOwnerEquipmentController(req: Request, res: Response
 
     const input = req.body as UpdateOwnerEquipmentInput;
     const files = (req.files as Express.Multer.File[]) ?? [];
-    const equipment = await updateOwnerEquipmentListing(ownerId, equipmentId, input, files, "DRAFT");
+    const equipment = await updateOwnerEquipmentListing(
+      ownerId,
+      equipmentId,
+      input,
+      files,
+      "DRAFT",
+    );
 
-    return sendSuccess(res, 200, "Draft listing updated successfully.", equipment);
+    return sendSuccess(
+      res,
+      200,
+      "Draft listing updated successfully.",
+      equipment,
+    );
   } catch (error) {
     return handleEquipmentError(res, error);
   }
 }
 
-export async function submitOwnerEquipmentController(req: Request, res: Response) {
+export async function submitOwnerEquipmentController(
+  req: Request,
+  res: Response,
+) {
   try {
     const ownerId = getAuthenticatedOwnerId(req);
     const equipmentId = getEquipmentIdParam(req);
@@ -325,19 +430,32 @@ export async function submitOwnerEquipmentController(req: Request, res: Response
       "PENDING_VERIFICATION",
     );
 
-    return sendSuccess(res, 200, "Listing submitted for verification successfully.", equipment);
+    return sendSuccess(
+      res,
+      200,
+      "Listing submitted for verification successfully.",
+      equipment,
+    );
   } catch (error) {
     return handleEquipmentError(res, error);
   }
 }
 
-export async function getPendingEquipmentController(req: Request, res: Response) {
+export async function getPendingEquipmentController(
+  req: Request,
+  res: Response,
+) {
   try {
     const listings = await getPendingEquipmentListings(
       req.query as unknown as PendingEquipmentQueryInput,
     );
 
-    return sendSuccess(res, 200, "Pending equipment listings fetched successfully.", listings);
+    return sendSuccess(
+      res,
+      200,
+      "Pending equipment listings fetched successfully.",
+      listings,
+    );
   } catch (error) {
     return handleEquipmentError(res, error);
   }
@@ -352,7 +470,12 @@ export async function getAdminEquipmentReviewSummaryListingsController(
       req.query as unknown as AdminEquipmentReviewSummaryQueryInput,
     );
 
-    return sendSuccess(res, 200, "Review summary listings fetched successfully.", listings);
+    return sendSuccess(
+      res,
+      200,
+      "Review summary listings fetched successfully.",
+      listings,
+    );
   } catch (error) {
     return handleEquipmentError(res, error);
   }
@@ -373,7 +496,12 @@ export async function approveEquipmentController(req: Request, res: Response) {
 
     const equipment = await approveEquipmentListing(adminId, equipmentId);
 
-    return sendSuccess(res, 200, "Equipment listing approved successfully.", equipment);
+    return sendSuccess(
+      res,
+      200,
+      "Equipment listing approved successfully.",
+      equipment,
+    );
   } catch (error) {
     return handleEquipmentError(res, error);
   }
@@ -395,13 +523,21 @@ export async function rejectEquipmentController(req: Request, res: Response) {
     const input = req.body as RejectEquipmentInput;
     const equipment = await rejectEquipmentListing(adminId, equipmentId, input);
 
-    return sendSuccess(res, 200, "Equipment listing rejected successfully.", equipment);
+    return sendSuccess(
+      res,
+      200,
+      "Equipment listing rejected successfully.",
+      equipment,
+    );
   } catch (error) {
     return handleEquipmentError(res, error);
   }
 }
 
-export async function getEquipmentReviewsController(req: Request, res: Response) {
+export async function getEquipmentReviewsController(
+  req: Request,
+  res: Response,
+) {
   try {
     const equipmentId = getEquipmentIdParam(req);
 
@@ -412,13 +548,21 @@ export async function getEquipmentReviewsController(req: Request, res: Response)
     const renterId = req.user?.role === "RENTER" ? req.user.userId : undefined;
     const reviews = await getEquipmentReviewDetails(equipmentId, renterId);
 
-    return sendSuccess(res, 200, "Equipment reviews fetched successfully.", reviews);
+    return sendSuccess(
+      res,
+      200,
+      "Equipment reviews fetched successfully.",
+      reviews,
+    );
   } catch (error) {
     return handleEquipmentError(res, error);
   }
 }
 
-export async function createEquipmentReviewController(req: Request, res: Response) {
+export async function createEquipmentReviewController(
+  req: Request,
+  res: Response,
+) {
   try {
     const renterId = req.user?.userId ?? null;
     const equipmentId = getEquipmentIdParam(req);
@@ -433,15 +577,28 @@ export async function createEquipmentReviewController(req: Request, res: Respons
 
     const input = req.body as CreateEquipmentReviewInput;
     const files = (req.files as Express.Multer.File[]) ?? [];
-    const reviews = await createEquipmentReview(renterId, equipmentId, input, files);
+    const reviews = await createEquipmentReview(
+      renterId,
+      equipmentId,
+      input,
+      files,
+    );
 
-    return sendSuccess(res, 201, "Equipment review created successfully.", reviews);
+    return sendSuccess(
+      res,
+      201,
+      "Equipment review created successfully.",
+      reviews,
+    );
   } catch (error) {
     return handleEquipmentError(res, error);
   }
 }
 
-export async function updateEquipmentReviewController(req: Request, res: Response) {
+export async function updateEquipmentReviewController(
+  req: Request,
+  res: Response,
+) {
   try {
     const renterId = req.user?.userId ?? null;
     const equipmentId = getEquipmentIdParam(req);
@@ -456,9 +613,19 @@ export async function updateEquipmentReviewController(req: Request, res: Respons
 
     const input = req.body as UpdateEquipmentReviewInput;
     const files = (req.files as Express.Multer.File[]) ?? [];
-    const reviews = await updateEquipmentReview(renterId, equipmentId, input, files);
+    const reviews = await updateEquipmentReview(
+      renterId,
+      equipmentId,
+      input,
+      files,
+    );
 
-    return sendSuccess(res, 200, "Equipment review updated successfully.", reviews);
+    return sendSuccess(
+      res,
+      200,
+      "Equipment review updated successfully.",
+      reviews,
+    );
   } catch (error) {
     return handleEquipmentError(res, error);
   }
@@ -482,7 +649,12 @@ export async function generateEquipmentReviewSummaryController(
 
     const summary = await generateEquipmentReviewSummary(equipmentId);
 
-    return sendSuccess(res, 200, "Review summary generated successfully.", summary);
+    return sendSuccess(
+      res,
+      200,
+      "Review summary generated successfully.",
+      summary,
+    );
   } catch (error) {
     return handleEquipmentError(res, error);
   }
@@ -510,7 +682,12 @@ export async function updateEquipmentReviewSummaryVisibilityController(
       input.visible,
     );
 
-    return sendSuccess(res, 200, "Review summary visibility updated successfully.", result);
+    return sendSuccess(
+      res,
+      200,
+      "Review summary visibility updated successfully.",
+      result,
+    );
   } catch (error) {
     return handleEquipmentError(res, error);
   }
